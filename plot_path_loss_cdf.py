@@ -32,6 +32,7 @@ import tensorflow.keras.backend as K
 
 from models import ChanMod
 
+model_dir = 'model_data'
 
 # Load the data
 fn = 'train_test_data.p'
@@ -40,13 +41,13 @@ with open(fn, 'rb') as fp:
     
 # Construct the channel model object
 K.clear_session()
-chan_mod = ChanMod(pl_max=pl_max)
+chan_mod = ChanMod(pl_max=pl_max,model_dir=model_dir)
 
 # Load the learned link classifier model
 chan_mod.load_link_model()    
 
 # Load the learned path model 
-chan_mod.load_path_model()
+chan_mod.load_path_model(weights_fn='path_weights.check.h5')
 npaths_max = chan_mod.npaths_max
 
 def comp_pl_omni(pl, pl_max):

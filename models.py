@@ -11,7 +11,7 @@ import numpy as np
 import sklearn.preprocessing
 import pickle
 from tensorflow.keras.optimizers import Adam
-
+import os
 
 
 class CondVAE(object):
@@ -217,14 +217,16 @@ class ChanMod(object):
     ncell_type = 2
     
     # Numbers of transformed features for models
-    nin_link = 5        
+    nin_link = 5   # num features for link predictor model
+    ncond = 5      # num condition features for path model
     
     
     
     def __init__(self,npaths_max=25,pl_max=200, nlatent=10,\
                  nunits_enc=(50,20), nunits_dec=(50,20), \
                  nunits_link=(25,10), add_zero_los_frac=0.25,out_var_min=1e-4,\
-                 init_bias_stddev=10.0, init_kernel_stddev=10.0):
+                 init_bias_stddev=10.0, init_kernel_stddev=10.0,\
+                 model_dir='model_data'):
         """
         Constructor
 
@@ -255,7 +257,9 @@ class ChanMod(object):
             std deviation of the kernel in the initialization
         init_bias_stddev : scalar
             std deviation of the bias in the initialization
-             
+        model_dir : string
+            path to the directory for all the model files.
+            if this path does not exist, it will be created             
         """
         self.npaths_max = npaths_max
         self.pl_max = pl_max
@@ -263,6 +267,7 @@ class ChanMod(object):
         self.nunits_link = nunits_link
         self.init_kernel_stddev = init_kernel_stddev
         self.init_bias_stddev = init_bias_stddev
+        self.model_dir = model_dir
         
         self.nlatent = nlatent
         self.nunits_enc = nunits_enc
@@ -472,12 +477,19 @@ class ChanMod(object):
             Filename for the pickle copy of the pre-processors
 
         """
+        # Create the file paths
+        if not os.path.exists(self.model_dir):
+            os.makedirs(self.model_dir)
+        preproc_path = os.path.join(self.model_dir, preproc_fn)
+        weigths_path = os.path.join(self.model_dir, weights_fn)
+        
+        
         # Save the pre-processors
-        with open(preproc_fn,'wb') as fp:
+        with open(preproc_path,'wb') as fp:
             pickle.dump([self.link_scaler, self.nunits_link], fp)
             
         # Save the VAE weights
-        self.link_mod.save_weights(weights_fn, save_format='h5')
+        self.link_mod.save_weights(weigths_path, save_format='h5')
         
     def load_link_model(self, weights_fn='link_weights.h5', preproc_fn='link_preproc.p'):
         """
@@ -491,31 +503,35 @@ class ChanMod(object):
             Filename for the pickle copy of the pre-processors
 
         """
+        # Create the file paths
+        preproc_path = os.path.join(self.model_dir, preproc_fn)
+        weigths_path = os.path.join(self.model_dir, weights_fn)
+
         # Load the pre-processors and model config
-        with open(preproc_fn,'rb') as fp:
+        with open(preproc_path,'rb') as fp:
             self.link_scaler, self.nunits_link = pickle.load(fp)
             
         # Build the link state predictor
         self.build_link_mod()
         
         # Load the VAE weights
-        self.link_mod.load_weights(weights_fn)
+        self.link_mod.load_weights(weigths_path)
         
     def build_path_mod(self):
         """
         Builds the VAE for the NLOS paths
         """
-        ncond = 5
         ndat = self.npaths_max
         
         self.path_mod = CondVAE(\
-            nlatent=self.nlatent, ndat=ndat, ncond=ncond,\
+            nlatent=self.nlatent, ndat=ndat, ncond=ChanMod.ncond,\
             nunits_enc=self.nunits_enc, nunits_dec=self.nunits_dec,\
             out_var_min=self.out_var_min, sort_out=True,\
             init_bias_stddev=self.init_bias_stddev,\
             init_kernel_stddev=self.init_kernel_stddev)
             
-    def fit_path_mod(self, train_data, test_data, epochs=50, lr=1e-3):
+    def fit_path_mod(self, train_data, test_data, epochs=50, lr=1e-3,\
+                     save_checkpoints = False):
         """
         Trains the path model
 
@@ -524,7 +540,13 @@ class ChanMod(object):
         train_data : dictionary
             training data dictionary.
         test_data : dictionary
-            test data dictionary.    
+            test data dictionary. 
+        epochs: int
+            number of training epochs
+        lr: scalar
+            learning rate
+        save_checkpoints:  boolean
+            if true, saves checkpoints every 10 epochs
         """      
         # Get the link state
         ls_tr = self.get_link_state(train_data['los_exists'], train_data['nlos_pl'])
@@ -549,14 +571,32 @@ class ChanMod(object):
         Xtr = self.transform_data(train_data['nlos_pl'][Itr], fit=True)
         Xts = self.transform_data(test_data['nlos_pl'][Its])
         
+        # Create the checkpoint callback
+        if save_checkpoints:
+            batch_size = 100
+            save_freq = 10*int(np.ceil(Xtr.shape[0]/batch_size))
+            if not os.path.exists(self.model_dir):
+                os.makedirs(self.model_dir)
+            cp_path = os.path.join(self.model_dir, 'path_weights.{epoch:03d}.h5')
+            callbacks = [tf.keras.callbacks.ModelCheckpoint(\
+                filepath=cp_path, save_weights_only=True,save_freq=save_freq)]
+        else:
+            callbacks = []
+        
+        
         # Fit the model
         opt = Adam(lr=lr)
         self.path_mod.vae.compile(opt)
             
         self.path_hist = self.path_mod.vae.fit(\
                     [Xtr,Utr], batch_size=100, epochs=epochs,\
-                    validation_data=([Xts,Uts],None) )
+                    validation_data=([Xts,Uts],None),\
+                    callbacks=callbacks)
         
+        # Save the history
+        hist_path = os.path.join(self.model_dir, 'path_train_hist.p')        
+        with open(hist_path,'wb') as fp:
+            pickle.dump(self.path_hist.history, fp)
         
         
     def transform_cond(self, dvec, cell_type, los, fit=False):
@@ -707,14 +747,20 @@ class ChanMod(object):
             Filename for the pickle copy of the pre-processors
 
         """
+        # Create the file paths
+        if not os.path.exists(self.model_dir):
+            os.makedirs(self.model_dir)
+        preproc_path = os.path.join(self.model_dir, preproc_fn)
+        weigths_path = os.path.join(self.model_dir, weights_fn)
+        
         # Save the pre-processors
-        with open(preproc_fn,'wb') as fp:
+        with open(preproc_path,'wb') as fp:
             pickle.dump([self.dat_scaler, self.cond_scaler, self.pl_max,\
                          self.npaths_max, self.nlatent, self.nunits_enc,\
                          self.nunits_dec], fp)
             
         # Save the VAE weights
-        self.path_mod.vae.save_weights(weights_fn, save_format='h5')
+        self.path_mod.vae.save_weights(weigths_path, save_format='h5')
         
     def load_path_model(self, weights_fn='path_weights.h5', preproc_fn='path_preproc.p'):
         """
@@ -728,8 +774,12 @@ class ChanMod(object):
             Filename for the pickle copy of the pre-processors
 
         """
+        # Create the file paths
+        preproc_path = os.path.join(self.model_dir, preproc_fn)
+        weights_path = os.path.join(self.model_dir, weights_fn)
+        
         # Load the pre-processors
-        with open(preproc_fn,'rb') as fp:
+        with open(preproc_path,'rb') as fp:
             self.dat_scaler, self.cond_scaler, self.pl_max,\
                 self.npaths_max, self.nlatent, self.nunits_enc,\
                 self.nunits_dec = pickle.load(fp)
@@ -738,7 +788,7 @@ class ChanMod(object):
         self.build_path_mod()
             
         # Load the VAE weights
-        self.path_mod.vae.load_weights(weights_fn)
+        self.path_mod.vae.load_weights(weights_path)
         
 def set_initialization(mod, layer_names, kernel_stddev=1.0, bias_stddev=1.0):
     """
