@@ -32,7 +32,7 @@ import tensorflow.keras.backend as K
 
 from models import ChanMod
 
-model_dir = 'model_data_lr001'
+model_dir = 'model_data'
 
 # Load the data
 fn = 'train_test_data.p'
