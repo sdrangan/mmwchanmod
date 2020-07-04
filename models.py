@@ -531,7 +531,7 @@ class ChanMod(object):
             init_kernel_stddev=self.init_kernel_stddev)
             
     def fit_path_mod(self, train_data, test_data, epochs=50, lr=1e-3,\
-                     save_checkpoints = False):
+                     checkpoint_period = 0):
         """
         Trains the path model
 
@@ -545,8 +545,9 @@ class ChanMod(object):
             number of training epochs
         lr: scalar
             learning rate
-        save_checkpoints:  boolean
-            if true, saves checkpoints every 10 epochs
+        checkpoint_period:  int
+            period in epochs for saving the model checkpoints.  
+            A value of 0 indicates that checkpoints are not be saved.
         """      
         # Get the link state
         ls_tr = self.get_link_state(train_data['los_exists'], train_data['nlos_pl'])
@@ -572,9 +573,9 @@ class ChanMod(object):
         Xts = self.transform_data(test_data['nlos_pl'][Its])
         
         # Create the checkpoint callback
-        if save_checkpoints:
-            batch_size = 100
-            save_freq = 10*int(np.ceil(Xtr.shape[0]/batch_size))
+        batch_size = 100
+        if (checkpoint_period > 0):            
+            save_freq = checkpoint_period*int(np.ceil(Xtr.shape[0]/batch_size))
             if not os.path.exists(self.model_dir):
                 os.makedirs(self.model_dir)
             cp_path = os.path.join(self.model_dir, 'path_weights.{epoch:03d}.h5')
@@ -589,7 +590,7 @@ class ChanMod(object):
         self.path_mod.vae.compile(opt)
             
         self.path_hist = self.path_mod.vae.fit(\
-                    [Xtr,Utr], batch_size=100, epochs=epochs,\
+                    [Xtr,Utr], batch_size=batch_size, epochs=epochs,\
                     validation_data=([Xts,Uts],None),\
                     callbacks=callbacks)
         

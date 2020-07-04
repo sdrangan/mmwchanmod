@@ -25,12 +25,9 @@ tfk = tf.keras
 tfkm = tf.keras.models
 tfkl = tf.keras.layers
 import tensorflow.keras.backend as K
-from tensorflow.keras.optimizers import Adam
-import sklearn.preprocessing
 import argparse
-import os
 
-from models import CondVAE, ChanMod
+from models import ChanMod
 
 """
 Parse arguments from command line
@@ -65,9 +62,8 @@ parser.add_argument('--no_fit_link', dest='no_fit_link', action='store_true',\
     help="Does not fit the link model")
 parser.add_argument('--no_fit_path', dest='no_fit_path', action='store_true',\
     help="Does not fit the path model")
-parser.add_argument('--save_checkpoints', dest='save_checkpoints', action='store_true',\
-    help="Save checkpoints for the path loss training")
-    
+parser.add_argument('--checkpoint_period',action='store',default=100,type=int,\
+    help='Period in epochs for storing checkpoint.  A value of 0 indicates no checkpoints')    
     
 
 args = parser.parse_args()
@@ -84,7 +80,7 @@ nunits_link = args.nunits_link
 model_dir = args.model_dir
 fit_link = not args.no_fit_link
 fit_path = not args.no_fit_path
-save_checkpoints = args.save_checkpoints
+checkpoint_period = args.checkpoint_period
 
     
 # Load the data
@@ -130,7 +126,7 @@ if fit_path:
     chan_mod.build_path_mod()
     chan_mod.fit_path_mod(train_data, test_data, lr=lr_path,\
                           epochs=nepochs_path,\
-                          save_checkpoints=save_checkpoints)
+                          checkpoint_period=checkpoint_period)
 
     
     # Save the path loss model
