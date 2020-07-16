@@ -1,5 +1,5 @@
 """
-vae.py:  Conditional VAE model 
+models.py:  Classes for the modeling
 
 """
 import tensorflow as tf
@@ -12,6 +12,24 @@ import sklearn.preprocessing
 import pickle
 from tensorflow.keras.optimizers import Adam
 import os
+
+from spherical import spherical_add_sub, cart_to_sph
+
+class DataFormat(object):
+    """
+    Constants for data format
+    """
+    
+    # Indices for the angle data
+    aoa_phi_ind = 0
+    aoa_theta_ind = 1
+    aod_phi_ind = 2
+    aod_theta_ind = 3
+    nangle = 4
+    
+    # Maximum number of paths
+    npaths_max = 25
+    
 
 
 class CondVAE(object):
@@ -598,6 +616,111 @@ class ChanMod(object):
         hist_path = os.path.join(self.model_dir, 'path_train_hist.p')        
         with open(hist_path,'wb') as fp:
             pickle.dump(self.path_hist.history, fp)
+            
+    def transform_ang(self, dvec, nlos_ang, nlos_pl):
+        """
+        Performs the transformation on the angle data
+
+        Parameters
+        ----------
+        dvec : (nlink,ndim) array
+            Vectors from cell to UAV for each link
+        nlos_ang : (nlink,npaths_max,nangle) array
+            Angles of each path in each link.  
+            The angles are in degrees
+        nlos_pl : (nlink,npaths_max) array 
+            Path losses of each path in each link.
+            A value of pl_max indicates no path
+
+        Returns
+        -------
+        ang_tr : (nlink,nangle*npaths_max)
+            Tranformed angle coordinates
+
+        """
+                
+        # Compute the LOS angles
+        r, los_aod_phi, los_aod_theta = cart_to_sph(dvec)
+        r, los_aoa_phi, los_aoa_theta = cart_to_sph(-dvec)
+        
+        # Get the NLOS angles
+        nlos_aod_phi   = nlos_ang[:,:,DataFormat.aod_phi_ind]
+        nlos_aod_theta = nlos_ang[:,:,DataFormat.aod_theta_ind]
+        nlos_aoa_phi   = nlos_ang[:,:,DataFormat.aoa_phi_ind]
+        nlos_aoa_theta = nlos_ang[:,:,DataFormat.aoa_theta_ind]
+        
+        # Rotate the NLOS angles by the LOS angles to compute
+        # the relative angle        
+        aod_phi_rel, aod_theta_rel = spherical_add_sub(\
+            nlos_aod_phi, nlos_aod_theta,\
+            los_aod_phi[:,None], los_aod_theta[:,None])
+        aoa_phi_rel, aoa_theta_rel = spherical_add_sub(\
+            nlos_aoa_phi, nlos_aoa_theta,\
+            los_aoa_phi[:,None], los_aoa_theta[:,None])            
+            
+        # Set the relative angle on non-existent paths to zero
+        I = (nlos_pl < self.pl_max-0.01)
+        aod_phi_rel = aod_phi_rel*I
+        aod_theta_rel = aod_theta_rel*I
+        aoa_phi_rel = aoa_phi_rel*I
+        aoa_theta_rel = aoa_theta_rel*I
+                                        
+        # Stack the relative angles and scale by 180
+        ang_tr = np.hstack(\
+            (aoa_phi_rel/180, aoa_theta_rel/180,\
+             aod_phi_rel/180, aod_theta_rel/180))
+        
+        return ang_tr
+    
+    def inv_transform_ang(self, dvec, ang_tr):
+        """
+        Performs the transformation on the angle data
+
+        Parameters
+        ----------
+        dvec : (nlink,ndim) array
+            Vectors from cell to UAV for each link
+        ang_tr : (nlink,nangle*npaths_max)
+            Tranformed angle coordinates            
+   
+
+        Returns
+        -------
+        nlos_ang : (nlink,npaths_max,nangle) array
+            Angles of each path in each link.  
+            The angles are in degrees        
+        """
+                
+        # Compute the LOS angles
+        r, los_aod_phi, los_aod_theta = cart_to_sph(dvec)
+        r, los_aoa_phi, los_aoa_theta = cart_to_sph(-dvec)
+        
+        # Get the transformed angles
+        npm = self.npaths_max
+        aoa_phi_rel   = ang_tr[:,:npm]*180
+        aoa_theta_rel = ang_tr[:,npm:2*npm]*180        
+        aod_phi_rel   = ang_tr[:,2*npm:3*npm]*180
+        aod_theta_rel = ang_tr[:,3*npm:]*180        
+                
+        # Rotate the relative angles by the LOS angles to compute
+        # the original NLOS angles
+        nlos_aoa_phi, nlos_aoa_theta = spherical_add_sub(\
+            aoa_phi_rel, aoa_theta_rel,\
+            los_aoa_phi[:,None], los_aoa_theta[:,None], sub=False)
+        nlos_aod_phi, nlos_aod_theta = spherical_add_sub(\
+            aod_phi_rel, aod_theta_rel,\
+            los_aod_phi[:,None], los_aod_theta[:,None], sub=False)
+            
+        # Stack the relative angles     
+        nlink = nlos_aod_phi.shape[0]
+        nlos_ang = np.zeros((nlink,self.npaths_max,DataFormat.nangle))
+        nlos_ang[:,:,DataFormat.aoa_phi_ind] = nlos_aoa_phi
+        nlos_ang[:,:,DataFormat.aoa_theta_ind] = nlos_aoa_theta
+        nlos_ang[:,:,DataFormat.aod_phi_ind] = nlos_aod_phi
+        nlos_ang[:,:,DataFormat.aod_theta_ind] = nlos_aod_theta
+        
+        return nlos_ang
+            
         
         
     def transform_cond(self, dvec, cell_type, los, fit=False):

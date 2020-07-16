@@ -17,12 +17,18 @@ pl_max = 200.0  # max path loss.
 ts_frac = 0.3   # fraction of samples for test vs. train
 tx_pow_dbm = 16 # TX power in dBm
 
+# Angles will be stored as [aoa_az,aoa_el,aod_az,aod_el]
+nangle = 4
+
 # Create empty arrays on which to stack
 nlos_pl = np.zeros((0,npath_max))
 los_exists = np.zeros(0,dtype=np.int)
 dvec = np.zeros((0,ndim))
 los_pl = np.zeros(0)
 cell_type = np.zeros(0,dtype=np.int)
+nlos_ang = np.zeros((0,npath_max,nangle))
+los_ang = np.zeros((0,nangle))
+ang = np.zeros((0,npath_max,nangle))
 
 # Loop over the heights to extract the data
 for height in heights:
@@ -49,9 +55,10 @@ for height in heights:
     rxid = df['RXID'].to_numpy()-1
     cell_type_path = df['RX_Type'].to_numpy()-1
     los_path = df['los'].to_numpy()
-    rx_pow_dbm = df['rx_power_dbm'].to_numpy()
-    
-    
+    rx_pow_dbm = df['rx_power_dbm'].to_numpy()    
+    ang_path = df[['aoa_phi_deg','aoa_theta_deg',\
+                   'doa_phi_deg','doa_theta_deg']].to_numpy()
+        
     # Get dimensions
     nrx = rx_pos.shape[0]
     ntx = tx_pos.shape[0]
@@ -59,28 +66,56 @@ for height in heights:
     # Get distances
     dvec0 = tx_pos[None,:,:]-rx_pos[:,None,:] 
     
-    # Loop over the paths to get data on each tx-rx pair
+    # Initialize the vectors to hold the path data
     los_exists0 = np.zeros((nrx,ntx), dtype=np.int)
     cell_type0 = np.zeros((nrx,ntx), dtype=np.int)
     los_pl0 = np.zeros((nrx,ntx))
     npath_nlos0 = np.zeros((nrx,ntx),dtype=np.int)
     nlos_pl0 = np.tile(pl_max,(nrx,ntx,npath_max))    
+    los_ang0 = np.zeros((nrx,ntx,nangle))
+    nlos_ang0 = np.zeros((nrx,ntx,npath_max,nangle))
+    ang0 = np.zeros((nrx,ntx,npath_max,nangle))
+  
+    itx_prev = -1
+    irx_prev = -1
+    pathNum = 0
+    # Loop over the paths to get data on each tx-rx pair
     for ipath in range(npath_tot):
-        
+    
         irx = rxid[ipath]
         itx = txid[ipath]
         pl_path = tx_pow_dbm - rx_pow_dbm[ipath]
+        
+        
+        if ((itx==itx_prev) & (irx==irx_prev)):
+            # Same tx-rx pair
+            pathNum += 1
+        else: 
+            # New tx-rx pair
+            pathNum = 0
+            
+        ang0[irx,itx,pathNum,:] = ang_path[ipath,:]
+            
+        
         if los_path[ipath]:
+            # LOS path case.  
             los_pl0[irx,itx] = pl_path
+            los_ang0[irx,itx,:] = ang_path[ipath,:]
             los_exists0[irx,itx] = 1        
             
         elif (pl_path < pl_max):
-            # Add NLOS path
+            # NLOS path case
             j = npath_nlos0[irx,itx]        
             nlos_pl0[irx,itx,j] = pl_path
-            npath_nlos0[irx,itx] += 1
-        cell_type0[irx,itx]= cell_type_path[ipath]
-       
+            npath_nlos0[irx,itx] += 1 
+            nlos_ang0[irx,itx,j,:] = ang_path[ipath,:]
+        
+        
+        cell_type0[irx,itx,] = cell_type_path[ipath]
+        
+        itx_prev = itx
+        irx_prev = irx
+        
     # Append to arrays
     nlos_pl = np.vstack((nlos_pl, nlos_pl0.reshape((nrx*ntx,npath_max)) ))
     los_exists = np.hstack((los_exists, los_exists0.ravel() ))
@@ -88,6 +123,13 @@ for height in heights:
     dvec0 = dvec0.reshape((nrx*ntx,ndim))
     dvec = np.vstack((dvec, dvec0))
     los_pl = np.hstack((los_pl, los_pl0.ravel())) 
+    los_ang = np.vstack((los_ang, los_ang0.reshape((nrx*ntx,nangle)) ))
+    nlos_ang = np.vstack((nlos_ang,\
+                          nlos_ang0.reshape((nrx*ntx,npath_max,nangle)) ))
+    
+    ang = np.vstack((ang,ang0.reshape((nrx*ntx,npath_max,nangle)) ))
+        
+      
     
 # Split into training and test
 ns = dvec.shape[0]
@@ -96,10 +138,12 @@ ntr = ns - nts
 I = np.random.permutation(ns)
 train_data = {'dvec': dvec[I[:ntr]], 'los_exists': los_exists[I[:ntr]], \
               'nlos_pl': nlos_pl[I[:ntr]], 'los_pl':  los_pl[I[:ntr]],\
-              'cell_type': cell_type[I[:ntr]]}
+              'cell_type': cell_type[I[:ntr]], 'nlos_ang': nlos_ang[I[:ntr]],\
+              'los_ang': los_ang[I[:ntr]], 'ang': ang[I[:ntr]]}
 test_data = {'dvec': dvec[I[ntr:]], 'los_exists': los_exists[I[ntr:]], \
              'nlos_pl': nlos_pl[I[ntr:]], 'los_pl':  los_pl[I[ntr:]],\
-             'cell_type': cell_type[I[ntr:]]}
+             'cell_type': cell_type[I[ntr:]], 'nlos_ang': nlos_ang[I[ntr:]],\
+              'los_ang': los_ang[I[ntr:]], 'ang': ang[I[:nts]]}
     
 
 fn = 'train_test_data.p'

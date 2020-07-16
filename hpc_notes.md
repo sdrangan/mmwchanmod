@@ -26,6 +26,7 @@ Before beginning, you will need an account on NYU's HPC cluster.  Follow the [in
     ```
         module load cudnn/10.0v7.6.5.32
     ```
+    Note that the networks in this project are small and a GPU will not offer any noticeable improvement in speed. 
 
 ## Running the training on the cluster
 To run the training on the cluster:
