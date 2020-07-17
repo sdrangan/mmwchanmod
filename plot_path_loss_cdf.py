@@ -32,7 +32,7 @@ import tensorflow.keras.backend as K
 
 from models import ChanMod
 
-model_dir = 'model_data'
+model_dir = 'model_data_nl20'
 
 # Load the data
 fn = 'train_test_data.p'
@@ -107,13 +107,13 @@ for iplot, cell_type0 in enumerate(cell_types):
     if (iplot==2) or (iplot==3):
         plt.xlabel('Path loss (dB)')
     plt.xlim([np.min(pl_omni_ts), np.max(pl_omni_ts)])
+    
+    
+    
 
 plt.tight_layout()
 
      
 plt.savefig('omni_path_loss.png', bbox_inches='tight')
-
-
-
 
 

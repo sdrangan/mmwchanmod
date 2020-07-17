@@ -41,10 +41,12 @@ parser.add_argument('--nepochs_link',action='store',default=50,type=int,\
     help='number of epochs for training the link model')
 parser.add_argument('--lr_link',action='store',default=1e-3,type=float,\
     help='learning rate for the link model')   
-parser.add_argument('--nepochs_path',action='store',default=50,type=int,\
+parser.add_argument('--nepochs_path',action='store',default=2000,type=int,\
     help='number of epochs for training the path model')
 parser.add_argument('--lr_path',action='store',default=1e-3,type=float,\
     help='learning rate for the path model')     
+parser.add_argument('--out_var_min',action='store',default=1e-6,type=float,\
+    help='min variance in the decoder outputs.  Used for conditioning')     
 parser.add_argument('--init_stddev',action='store',default=10.0,type=float,\
     help='weight and bias initialization')
 parser.add_argument('--nunits_enc',action='store',nargs='+',\
@@ -64,7 +66,8 @@ parser.add_argument('--no_fit_path', dest='no_fit_path', action='store_true',\
     help="Does not fit the path model")
 parser.add_argument('--checkpoint_period',action='store',default=100,type=int,\
     help='Period in epochs for storing checkpoint.  A value of 0 indicates no checkpoints')    
-    
+parser.add_argument('--batch_ind',action='store',default=-1,type=int,\
+    help='batch index.  -1 indicates no batch index')    
 
 args = parser.parse_args()
 nlatent = args.nlatent
@@ -78,11 +81,26 @@ nunits_enc = args.nunits_enc
 nunits_dec = args.nunits_dec
 nunits_link = args.nunits_link
 model_dir = args.model_dir
+batch_ind = args.batch_ind
+out_var_min = args.out_var_min
 fit_link = not args.no_fit_link
 fit_path = not args.no_fit_path
 checkpoint_period = args.checkpoint_period
 
+# Overwrite parameters based on batch index
+lr_batch = [1e-3,1e-3,1e-3,1e-4,1e-4]
+nlatent_batch = [10,20,30,20,30]
+dir_suffix = ['lr3_nl10', 'lr3_nl20', 'lr3_nl30', 'lr4_nl20', 'lr4_nl30']    
+if batch_ind >= 0:
+    model_dir = ('model_data_%s' % dir_suffix[batch_ind])
+    lr = lr_batch[batch_ind]
+    nlatent = nlatent_batch[batch_ind]
+    print('batch_ind=%d' % batch_ind)
+    print('model_dir= %s' % model_dir)
+    print('lr=%12.4e' % lr)
+    print('nlatent=%d' % nlatent)
     
+
 # Load the data
 fn = 'train_test_data.p'
 with open(fn, 'rb') as fp:
@@ -98,6 +116,7 @@ K.clear_session()
 chan_mod = ChanMod(nlatent=nlatent,pl_max=pl_max, npaths_max=npaths_max,\
                    nunits_enc=nunits_enc, nunits_dec=nunits_dec,\
                    nunits_link=nunits_link,\
+                   out_var_min=out_var_min,\
                    init_bias_stddev=init_stddev,\
                    init_kernel_stddev=init_stddev, model_dir=model_dir)
 
