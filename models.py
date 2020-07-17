@@ -36,7 +36,7 @@ class CondVAE(object):
     def __init__(self, nlatent, ndat, ncond, nunits_enc=(25,10,),\
                  nunits_dec=(10,25,), out_var_min=1e-4,\
                  init_kernel_stddev=10.0, init_bias_stddev=10.0,\
-                 sort_out=False,**kwargs):
+                 nsort=0):
         """
         Conditional VAE class
 
@@ -52,9 +52,9 @@ class CondVAE(object):
             number of hidden units in each layer of the encoder
         nunits_dec : list of integers
             number of hidden units in each layer of the decoder
-        sort_out : boolean
-            flag indicating if output mean is sorted 
-            This is used for the path loss data
+        nsort : int
+            Sort sthe first nsort values of the output.
+            This is used for the path loss data where nsort=npaths_max
         out_var_min:  scalar
             minimum output variance.  This is used for improved conditioning
         init_kernel_stddev : scalar
@@ -68,7 +68,7 @@ class CondVAE(object):
         self.ncond = ncond
         self.nunits_enc = nunits_enc
         self.out_var_min = out_var_min
-        self.sort_out = sort_out
+        self.nsort = nsort
         self.init_kernel_stddev = init_kernel_stddev
         self.init_bias_stddev = init_bias_stddev
         
@@ -147,11 +147,15 @@ class CondVAE(object):
                            bias_initializer=None, name='FC%d' % i)(h)
             layer_names.append('FC%d' % i)
             
-        # Add the output mean with optional sorting        
+        # Add the output mean 
         x_mu = tfkl.Dense(self.ndat, name='x_mu',\
                           bias_initializer=None)(h)
-        if self.sort_out:
-            x_mu = tf.sort(x_mu, direction='DESCENDING', axis=-1)
+        # Add sorting of the first path loss values 
+        if self.nsort > 0:
+            x_mu_pl = x_mu[:,:self.nsort]            
+            x_mu_pl = tf.sort(x_mu_pl, direction='DESCENDING', axis=-1)
+            x_mu_ang = x_mu[:,self.nsort:]
+            x_mu = tfkl.Concatenate()([x_mu_pl, x_mu_ang])
                                 
         # Add the output variance.                            
         x_log_var = tfkl.Dense(self.ndat, name='x_log_var')(h)   
@@ -539,12 +543,15 @@ class ChanMod(object):
         """
         Builds the VAE for the NLOS paths
         """
-        ndat = self.npaths_max
+        
+        # Number of data inputs in the transformed domain
+        # For each point, there is one path loss and nangle angles
+        self.ndat = self.npaths_max*(1+DataFormat.nangle)
         
         self.path_mod = CondVAE(\
-            nlatent=self.nlatent, ndat=ndat, ncond=ChanMod.ncond,\
+            nlatent=self.nlatent, ndat=self.ndat, ncond=ChanMod.ncond,\
             nunits_enc=self.nunits_enc, nunits_dec=self.nunits_dec,\
-            out_var_min=self.out_var_min, sort_out=True,\
+            out_var_min=self.out_var_min, nsort=self.npaths_max,\
             init_bias_stddev=self.init_bias_stddev,\
             init_kernel_stddev=self.init_kernel_stddev)
             
@@ -587,8 +594,14 @@ class ChanMod(object):
             los_ts[Its])            
         
         # Fit and transform the data
-        Xtr = self.transform_data(train_data['nlos_pl'][Itr], fit=True)
-        Xts = self.transform_data(test_data['nlos_pl'][Its])
+        Xtr = self.transform_data(\
+            train_data['dvec'][Itr],\
+            train_data['nlos_pl'][Itr,:self.npaths_max],\
+            train_data['nlos_ang'][Itr,:self.npaths_max,:], fit=True)
+        Xts  = self.transform_data(\
+            train_data['dvec'][Its],\
+            train_data['nlos_pl'][Its,:self.npaths_max],\
+            train_data['nlos_ang'][Its,:self.npaths_max,:])
         
         # Create the checkpoint callback
         batch_size = 100
@@ -634,7 +647,7 @@ class ChanMod(object):
 
         Returns
         -------
-        ang_tr : (nlink,nangle*npaths_max)
+        Xang : (nlink,nangle*npaths_max)
             Tranformed angle coordinates
 
         """
@@ -666,13 +679,13 @@ class ChanMod(object):
         aoa_theta_rel = aoa_theta_rel*I
                                         
         # Stack the relative angles and scale by 180
-        ang_tr = np.hstack(\
+        Xang = np.hstack(\
             (aoa_phi_rel/180, aoa_theta_rel/180,\
              aod_phi_rel/180, aod_theta_rel/180))
         
-        return ang_tr
+        return Xang
     
-    def inv_transform_ang(self, dvec, ang_tr):
+    def inv_transform_ang(self, dvec, Xang):
         """
         Performs the transformation on the angle data
 
@@ -680,7 +693,7 @@ class ChanMod(object):
         ----------
         dvec : (nlink,ndim) array
             Vectors from cell to UAV for each link
-        ang_tr : (nlink,nangle*npaths_max)
+        Xang : (nlink,nangle*npaths_max)
             Tranformed angle coordinates            
    
 
@@ -697,10 +710,10 @@ class ChanMod(object):
         
         # Get the transformed angles
         npm = self.npaths_max
-        aoa_phi_rel   = ang_tr[:,:npm]*180
-        aoa_theta_rel = ang_tr[:,npm:2*npm]*180        
-        aod_phi_rel   = ang_tr[:,2*npm:3*npm]*180
-        aod_theta_rel = ang_tr[:,3*npm:]*180        
+        aoa_phi_rel   = Xang[:,:npm]*180
+        aoa_theta_rel = Xang[:,npm:2*npm]*180        
+        aod_phi_rel   = Xang[:,2*npm:3*npm]*180
+        aod_theta_rel = Xang[:,3*npm:]*180        
                 
         # Rotate the relative angles by the LOS angles to compute
         # the original NLOS angles
@@ -720,8 +733,7 @@ class ChanMod(object):
         nlos_ang[:,:,DataFormat.aod_theta_ind] = nlos_aod_theta
         
         return nlos_ang
-            
-        
+                    
         
     def transform_cond(self, dvec, cell_type, los, fit=False):
         """
@@ -764,16 +776,80 @@ class ChanMod(object):
             
         return U
       
-        
-    def transform_data(self, pl, fit=False):
+    def transform_pl(self, nlos_pl, fit=False):
         """
-        Fits the pre-processing transform on the data
+        Transform on the NLOS path loss
 
         Parameters
         ----------
         pl : (nlink,npaths_max) array 
-            path losses of each path in each link.
+            path losses of each NLOS path in each link.
             A value of pl_max indicates no path
+        fit : boolean
+            flag indicating if the transform should be fit            
+
+        Returns
+        -------
+        Xpl : (nlink,npaths_max) array
+            Transform data features
+        """
+        
+        # Transform the condition variables
+        X0 = self.pl_max - nlos_pl[:,:self.npaths_max]     
+        
+        # Transform the data with the scaler.
+        # If fit is set, the transform is also learned
+        if fit:
+            self.dat_scaler = sklearn.preprocessing.MinMaxScaler()
+            Xpl = self.dat_scaler.fit_transform(X0)
+        else:
+            Xpl = self.dat_scaler.transform(X0)
+        return Xpl
+    
+    def inv_transform_pl(self, Xpl):
+        """
+        Inverts the transform on the NLOS path loss data
+
+        Parameters
+        ----------
+        Xpl : (nlink,ndat) array 
+            Transformed path loss values
+
+        Returns
+        -------
+        nlos_pl : (nlink,npaths_max) array 
+            Path losses of each NLOS path in each link.
+            A value of pl_max indicates no path
+        """
+        
+        # Invert the scaler
+        Xpl = np.maximum(0,Xpl)
+        Xpl = np.minimum(1,Xpl)
+        X0 = self.dat_scaler.inverse_transform(Xpl)
+        
+        # Sort and make positive
+        X0 = np.maximum(0, X0)
+        X0 = np.fliplr(np.sort(X0, axis=-1))
+        
+        # Transform the condition variables
+        nlos_pl = self.pl_max - X0  
+                
+        return nlos_pl        
+        
+    def transform_data(self, dvec, nlos_pl, nlos_ang, fit=False):
+        """
+        Pre-processing transform on the data
+
+        Parameters
+        ----------
+        dvec : (nlink,ndim) array
+            vector from cell to UAV
+        nlos_pl : (nlink,npaths_max) array 
+            Path losses of each path in each link.
+            A value of pl_max indicates no path
+        nlos_ang : (nlink,npaths_max,nangle) array
+            Angles of each path in each link.  
+            The angles are in degrees           
         fit : boolean
             flag indicating if the transform should be fit            
 
@@ -783,47 +859,46 @@ class ChanMod(object):
             Transform data features
         """
         
-        # Transform the condition variables
-        X0 = self.pl_max - pl[:,:self.npaths_max]     
+        # Transform the path loss data
+        Xpl = self.transform_pl(nlos_pl,fit)
         
-        # Transform the data with the scaler.
-        # If fit is set, the transform is also learned
-        if fit:
-            self.dat_scaler = sklearn.preprocessing.MinMaxScaler()
-            X = self.dat_scaler.fit_transform(X0)
-        else:
-            X = self.dat_scaler.transform(X0)
+        # Transform the angles
+        Xang = self.transform_ang(dvec,nlos_ang,nlos_pl)
+        
+        # Concatenate
+        X = np.hstack((Xpl, Xang))
         return X
     
-    def inv_transform_data(self, X):
+    def inv_transform_data(self, dvec, X):
         """
         Inverts the pre-processing transform on the data
 
         Parameters
         ----------
+        dvec : (nlink,ndim) array
+            vector from cell to UAV
         X : (nlink,ndat) array 
-            Pre-processed data
+            Transform data features
 
         Returns
         -------
-        pl : (nlink,npaths_max) array 
-            path losses of each path in each link.
+        nlos_pl : (nlink,npaths_max) array 
+            Path losses of each path in each link.
             A value of pl_max indicates no path
+        nlos_ang : (nlink,npaths_max,nangle) array
+            Angles of each path in each link.  
+            The angles are in degrees
         """
         
-        # Invert the scaler
-        X = np.maximum(0,X)
-        X = np.minimum(1,X)
-        X0 = self.dat_scaler.inverse_transform(X)
+        # Split
+        Xpl = X[:,:self.npaths_max]
+        Xang = X[:,self.npaths_max:]
         
-        # Sort and make positive
-        X0 = np.maximum(0, X0)
-        X0 = np.fliplr(np.sort(X0, axis=-1))
-        
-        # Transform the condition variables
-        pl = self.pl_max - X0  
+        # Invert the transforms
+        nlos_pl = self.inv_transform_pl(Xpl)
+        nlos_ang = self.inv_transform_ang(dvec, Xang)
                 
-        return pl
+        return nlos_pl, nlos_ang
         
     
     def sample_path(self, dvec, cell_type, los):
@@ -856,8 +931,8 @@ class ChanMod(object):
         X = self.path_mod.sampler([Z,U]) 
         
         # Compute the inverse transform to get back the path loss
-        pl = self.inv_transform_data(X)
-        return pl
+        nlos_pl, nlos_ang = self.inv_transform_data(dvec, X)
+        return nlos_pl, nlos_ang
     
     def save_path_model(self, weights_fn='path_weights.h5', preproc_fn='path_preproc.p'):
         """

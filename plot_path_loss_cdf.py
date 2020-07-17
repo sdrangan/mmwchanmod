@@ -81,8 +81,8 @@ for iplot, cell_type0 in enumerate(cell_types):
     Its = np.where((ls_ts == ls0) & (dat['cell_type'] == cell_type0))[0]
     
     # Sample from the same conditions
-    pl = chan_mod.sample_path(dat['dvec'][Its], dat['cell_type'][Its], \
-                              dat['los_exists'][Its])
+    nlos_pl, nlos_ang = chan_mod.sample_path(dat['dvec'][Its],\
+            dat['cell_type'][Its], dat['los_exists'][Its])
     
         
     # Get the omni path loss
@@ -91,7 +91,7 @@ for iplot, cell_type0 in enumerate(cell_types):
     pl_omni_rand = np.zeros(ns)
     for i in range(ns):
         pl_omni_ts[i] = comp_pl_omni(dat['nlos_pl'][Its[i],:npaths_max], pl_max)
-        pl_omni_rand[i] = comp_pl_omni(pl[i,:npaths_max], pl_max)
+        pl_omni_rand[i] = comp_pl_omni(nlos_pl[i,:npaths_max], pl_max)
     
 
     # Plot the CDFs
