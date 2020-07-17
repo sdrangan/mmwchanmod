@@ -72,7 +72,7 @@ You should see `gdrive` drive. You can see directories with commands such as
 ```
 You can copy the `model_data` with commands like:
 ```
-    rclone rcp model_data gdrive:/destpath/model_data
+    rclone copy model_data gdrive:/destpath/model_data
 ```
 The files should now be in your Gdrive.
 
