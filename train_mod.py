@@ -88,16 +88,17 @@ fit_path = not args.no_fit_path
 checkpoint_period = args.checkpoint_period
 
 # Overwrite parameters based on batch index
-lr_batch = [1e-3,1e-3,1e-3,1e-4,1e-4]
-nlatent_batch = [10,20,30,20,30]
-dir_suffix = ['lr3_nl10', 'lr3_nl20', 'lr3_nl30', 'lr4_nl20', 'lr4_nl30']    
+lr_batch = [1e-3,1e-3,1e-3,1e-4,1e-4,1e-4]
+nlatent_batch = [10,20,30,10,20,30]
+dir_suffix = ['lr3_nl10', 'lr3_nl20', 'lr3_nl30',\
+              'lr4_nl10','lr4_nl20', 'lr4_nl30']    
 if batch_ind >= 0:
     model_dir = ('model_data_%s' % dir_suffix[batch_ind])
-    lr = lr_batch[batch_ind]
+    lr_path = lr_batch[batch_ind]
     nlatent = nlatent_batch[batch_ind]
     print('batch_ind=%d' % batch_ind)
     print('model_dir= %s' % model_dir)
-    print('lr=%12.4e' % lr)
+    print('lr=%12.4e' % lr_path)
     print('nlatent=%d' % nlatent)
     
 

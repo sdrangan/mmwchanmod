@@ -30,6 +30,37 @@ def cart_to_sph(d):
     
     return r, phi, theta
 
+def sph_to_cart(r, phi, theta):
+    """
+    Spherical coordinates to cartesian coordinates
+
+    Parameters
+    ----------
+    r:  (n,) array
+        radius of each point
+    phi, theta:  (n,) arrays
+        azimuth and inclination angles in degrees
+
+    Returns
+    -------
+    d : (n,3) array
+        vector of positions
+
+    """
+    
+    # Convert to radians
+    phi = phi*np.pi/180
+    theta = theta*np.pi/180
+    
+    # Convert to cartesian
+    d0 = r*np.cos(phi)*np.sin(theta)
+    d1 = r*np.sin(phi)*np.sin(theta)
+    d2 = r*np.cos(theta)
+    d = np.stack((d0,d1,d2), axis=-1)
+         
+    return d
+
+
 def spherical_add_sub(phi0,theta0,phi1,theta1,sub=True):
     """
     Angular addition and subtraction in spherical coordinates

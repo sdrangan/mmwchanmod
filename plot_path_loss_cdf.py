@@ -30,25 +30,7 @@ tfkl = tf.keras.layers
 import tensorflow.keras.backend as K
 
 
-from models import ChanMod
-
-model_dir = 'model_data_nl20'
-
-# Load the data
-fn = 'train_test_data.p'
-with open(fn, 'rb') as fp:
-    train_data,test_data,pl_max = pickle.load(fp)
-    
-# Construct the channel model object
-K.clear_session()
-chan_mod = ChanMod(pl_max=pl_max,model_dir=model_dir)
-
-# Load the learned link classifier model
-chan_mod.load_link_model()    
-
-# Load the learned path model 
-chan_mod.load_path_model()
-npaths_max = chan_mod.npaths_max
+from models import ChanMod, combine_los_nlos, get_link_state
 
 def comp_pl_omni(pl, pl_max):
     I = np.where(pl < pl_max - 0.1)[0]
@@ -58,62 +40,68 @@ def comp_pl_omni(pl, pl_max):
         pl_omni = -10*np.log10( np.sum(10**(-0.1*pl[I]) ) )
     return pl_omni
 
-cell_types = [ChanMod.terr_cell, ChanMod.terr_cell,\
-              ChanMod.aerial_cell, ChanMod.aerial_cell]
-los_types = [1,1,0,0]
-title = ['Terr LOS', 'Terr NLOS', 'Aerial LOS', 'Aerial NLOS']
-nplot = len(cell_types)
+model_dir = 'models_20200719/model_data_lr4_nl10_mv4'
 
+# Load the data
+fn = 'train_test_data.p'
+with open(fn, 'rb') as fp:
+    train_data,test_data,pl_max = pickle.load(fp)
+    
+# Combine the LOS and NLOS path data
+data = test_data
+pl_dat, ang_dat = combine_los_nlos(\
+    data['nlos_pl'], data['nlos_ang'], data['los_exists'],\
+    data['los_pl'], data['los_ang'] )
+    
+# Get the link state
+link_state = get_link_state(data['los_exists'], data['nlos_pl'], pl_max)
+    
+# Construct the channel model object
+K.clear_session()
+chan_mod = ChanMod(pl_max=pl_max,model_dir=model_dir)
 
+# Load the learned link classifier model
+chan_mod.load_link_model()    
+
+# Load the learned path model 
+chan_mod.load_path_model(weights_fn='path_weights.h5')
+npaths_max = chan_mod.npaths_max
+
+# Sample from the same conditions
+pl_rand, ang_rand = chan_mod.sample_path(data['dvec'],\
+        data['cell_type'], link_state)
+
+    
+cell_types = [ChanMod.terr_cell, ChanMod.aerial_cell]
+title = ['Terrestrial', 'Aerial']
 for iplot, cell_type0 in enumerate(cell_types):
-        
-    # Get the LOS mode 
-    los0 = los_types[iplot]
-    if los0:
-        ls0 = ChanMod.los_link
-    else:
-        ls0 = ChanMod.nlos_link
-    
-    # Extract the test links to plot
-    dat = test_data
-    ls_ts = chan_mod.get_link_state(dat['los_exists'], dat['nlos_pl'])
-    
-    Its = np.where((ls_ts == ls0) & (dat['cell_type'] == cell_type0))[0]
-    
-    # Sample from the same conditions
-    nlos_pl, nlos_ang = chan_mod.sample_path(dat['dvec'][Its],\
-            dat['cell_type'][Its], dat['los_exists'][Its])
-    
+    I = np.where((link_state != ChanMod.no_link)\
+                 & (data['cell_type'] == cell_type0))[0]
         
     # Get the omni path loss
-    ns = len(Its)
-    pl_omni_ts = np.zeros(ns)
+    ns = len(I)
+    pl_omni_dat = np.zeros(ns)
     pl_omni_rand = np.zeros(ns)
     for i in range(ns):
-        pl_omni_ts[i] = comp_pl_omni(dat['nlos_pl'][Its[i],:npaths_max], pl_max)
-        pl_omni_rand[i] = comp_pl_omni(nlos_pl[i,:npaths_max], pl_max)
+        pl_omni_dat[i]  = comp_pl_omni(pl_rand[I[i],:npaths_max], pl_max)
+        pl_omni_rand[i] = comp_pl_omni(pl_dat[I[i],:npaths_max], pl_max)
     
-
+    print(cell_type0)
     # Plot the CDFs
-    plt.subplot(2,2,iplot+1)
+    plt.subplot(1,2,iplot+1)
     p = np.arange(ns)/ns
-    plt.plot(np.sort(pl_omni_ts), p)
-    plt.plot(np.sort(pl_omni_rand), p)
-    plt.grid()
+    plt.plot(np.sort(pl_omni_dat), p)
+    plt.plot(np.sort(pl_omni_rand), p)    
     plt.title(title[iplot])
-    plt.legend(['Test', 'VAE'])
-    if (iplot==0) or (iplot==2):
-        plt.ylabel('CDF')
-    if (iplot==2) or (iplot==3):
-        plt.xlabel('Path loss (dB)')
-    plt.xlim([np.min(pl_omni_ts), np.max(pl_omni_ts)])
+    plt.legend(['Data', 'Model'])
+    if iplot == 0:
+        plt.ylabel('CDF')    
+    plt.grid()        
+    plt.xlabel('Path loss (dB)')
     
-    
-    
-
+        
+        
 plt.tight_layout()
-
-     
 plt.savefig('omni_path_loss.png', bbox_inches='tight')
 
 

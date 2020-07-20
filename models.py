@@ -26,6 +26,7 @@ class DataFormat(object):
     aod_phi_ind = 2
     aod_theta_ind = 3
     nangle = 4
+    ang_name = ['AoA_Phi', 'AoA_theta', 'AoD_phi', 'AoD_theta']
     
     # Maximum number of paths
     npaths_max = 25
@@ -248,7 +249,7 @@ class ChanMod(object):
                  nunits_enc=(50,20), nunits_dec=(50,20), \
                  nunits_link=(25,10), add_zero_los_frac=0.25,out_var_min=1e-4,\
                  init_bias_stddev=10.0, init_kernel_stddev=10.0,\
-                 model_dir='model_data'):
+                 model_dir='model_data', fc=28e9):
         """
         Constructor
 
@@ -281,7 +282,9 @@ class ChanMod(object):
             std deviation of the bias in the initialization
         model_dir : string
             path to the directory for all the model files.
-            if this path does not exist, it will be created             
+            if this path does not exist, it will be created 
+        fc : scalar
+            carrier frequency in Hz            
         """
         self.npaths_max = npaths_max
         self.pl_max = pl_max
@@ -296,36 +299,10 @@ class ChanMod(object):
         self.nunits_dec = nunits_dec
         self.add_zero_los_frac = add_zero_los_frac
         self.out_var_min = out_var_min        
+        self.fc = fc
         
         
-    def get_link_state(self, los_exists, nlos_pl):
-        """
-        Computes the link state
-
-        Parameters
-        ----------
-        los_exists : (nlink,) array of boolean
-            indicates if each link has an LOS path or not
-        nlos_pl : (nlink,npaths_max) array of floats
-            path loss for each path in the link
-
-        Returns
-        -------
-        link_state : (nlink,) array of int
-            indicates link state: no_link, los_link, nlos_link            
-        """
-        
-        # Compute number of paths for each link
-        npath = np.sum((nlos_pl < self.pl_max-0.1), axis=1)
-        
-        # Compute link state
-        Ilos  = (los_exists==1)
-        Ino   = (los_exists==0) & (npath==0)
-        Inlos = (los_exists==0) & (npath>0)
-        
-        link_state = self.los_link*Ilos + self.nlos_link*Inlos\
-            + self.no_link*Ino
-        return link_state
+    
     
     def transform_link(self,dvec,cell_type,fit=False):
         """
@@ -436,8 +413,10 @@ class ChanMod(object):
         
         
         # Get the link state
-        ytr = self.get_link_state(train_data['los_exists'], train_data['nlos_pl'])
-        yts = self.get_link_state(test_data['los_exists'], test_data['nlos_pl'])
+        ytr = get_link_state(train_data['los_exists'], train_data['nlos_pl'],\
+                             self.pl_max)
+        yts = get_link_state(test_data['los_exists'], test_data['nlos_pl'],\
+                             self.pl_max)
         
         
         # Get the position and cell types
@@ -575,8 +554,10 @@ class ChanMod(object):
             A value of 0 indicates that checkpoints are not be saved.
         """      
         # Get the link state
-        ls_tr = self.get_link_state(train_data['los_exists'], train_data['nlos_pl'])
-        ls_ts = self.get_link_state(test_data['los_exists'], test_data['nlos_pl'])
+        ls_tr = get_link_state(train_data['los_exists'], train_data['nlos_pl'],\
+                               self.pl_max)
+        ls_ts = get_link_state(test_data['los_exists'], test_data['nlos_pl'],\
+                               self.pl_max)
         los_tr = ls_tr == ChanMod.los_link
         los_ts = ls_tr == ChanMod.los_link
         
@@ -899,40 +880,106 @@ class ChanMod(object):
         nlos_ang = self.inv_transform_ang(dvec, Xang)
                 
         return nlos_pl, nlos_ang
+    
+    def get_los_path(self, dvec):
+        """
+        Computes LOS path loss and angles
+
+        Parameters
+        ----------
+        dvec : (n,3) array            
+            Vector from cell to UAV
+            
+        Returns
+        -------
+        los_pl:  (n,) array
+            LOS path losses computed from Friis' Law
+        los_ang:  (n,DataFormat.nangle) = (n,4) array
+            LOS angles 
+        """
+        # Compute free space path loss from Friis' law
+        dist = np.sqrt(np.sum(dvec**2,axis=1))        
+        lam = 3e8/self.fc
+        los_pl = 20*np.log10(dist*4*np.pi/lam)
+        
+        # Compute the LOS angles
+        r, los_aod_phi, los_aod_theta = cart_to_sph(dvec)
+        r, los_aoa_phi, los_aoa_theta = cart_to_sph(-dvec)
+        
+        # Stack the angles
+        los_ang = np.stack((los_aoa_phi, los_aoa_theta,\
+                            los_aod_phi, los_aod_theta), axis=-1)
+    
+        return los_pl, los_ang
         
     
-    def sample_path(self, dvec, cell_type, los):
+    def sample_path(self, dvec, cell_type, link_state=None, nlos_only=False):
         """
         Generates random samples of the path data using the trained model
 
         Parameters
         ----------
         dvec : (nlink,ndim) array
-            vector from cell to UAV
+            Vector from cell to UAV
         cell_type : (nlink,) array of ints
-            cell type.  One of terr_cell, aerial_cell
-        los:  (nlink,) array of booleans
-            indicates if link is in LOS or not
+            Cell type.  One of terr_cell, aerial_cell
+        link_state:  (nlink,) array of {no_link, los_link, nlos_link}            
+            A value of `None` indicates that the link state should be
+            generated randomly
+        nlos_only: Boolean
+            If `True`, returns only the NLOS path data.
+            If `False`, returns the LOS and NLOS path data.
    
         Returns
         -------
         pl : (nlink,npaths_max) array 
-            path losses of each path in each link.
+            Path losses of each path in each link.
             A value of pl_max indicates no path
-
+        ang: (nlink,npaths_max,DataFormat.nangle) array
+            Angles of each pathin each link
         """
+        # Find the indices where there are some link
+        # and where there is a LOS link
+        Ilink = np.where(link_state != ChanMod.no_link)[0]
+        Ilos  = np.where(link_state == ChanMod.los_link)[0]
+        los   = link_state == ChanMod.los_link
+        nlink = link_state.shape[0]
         
         # Get the condition variables and random noise
-        U = self.transform_cond(dvec, cell_type, los)
-        nlink = U.shape[0]
-        Z = np.random.normal(0,1,(nlink,self.nlatent))
+        U = self.transform_cond(dvec[Ilink], cell_type[Ilink], los[Ilink])
+        nlink1 = U.shape[0]
+        Z = np.random.normal(0,1,(nlink1,self.nlatent))
         
         # Run through the sampling network
-        X = self.path_mod.sampler([Z,U]) 
+        X = self.path_mod.sampler.predict([Z,U]) 
         
         # Compute the inverse transform to get back the path loss
-        nlos_pl, nlos_ang = self.inv_transform_data(dvec, X)
-        return nlos_pl, nlos_ang
+        # and angle data
+        nlos_pl, nlos_ang = self.inv_transform_data(dvec[Ilink], X)
+        
+        # Create arrays for the PL and angles
+        pl  = np.tile(self.pl_max, (nlink,self.npaths_max))
+        ang = np.zeros((nlink,self.npaths_max,DataFormat.nangle))
+        
+        # Place the NLOS data in the arrays 
+        pl[Ilink]  = nlos_pl
+        ang[Ilink] = nlos_ang
+        
+        if not nlos_only:
+        
+            # Compute the PL and angles for the LOS paths
+            los_pl, los_ang = self.get_los_path(dvec[Ilos])
+            
+            # Add the path loss and angles to the NLOS paths
+            # On the links with LOS paths, move over the
+            # the NLOS data and insert the NLOS paths
+            pl[Ilos,1:] = pl[Ilos,:-1]
+            ang[Ilos,1:,:] = ang[Ilos,:-1,:]
+            pl[Ilos,0] = los_pl
+            ang[Ilos,0,:] = los_ang
+        
+        return pl, ang
+            
     
     def save_path_model(self, weights_fn='path_weights.h5', preproc_fn='path_preproc.p'):
         """
@@ -1013,4 +1060,81 @@ def set_initialization(mod, layer_names, kernel_stddev=1.0, bias_stddev=1.0):
         b = np.random.normal(0,bias_stddev,\
                              (nout,)).astype(np.float32)
         layer.set_weights([W,b])
+        
+def combine_los_nlos(nlos_pl, nlos_ang,\
+                     los_exists=None, los_pl=None, los_ang=None, fc=28e9):
+    """
+    Combines LOS and NLOS path loss data
+
+    Parameters
+    ----------
+    link_state : TYPE
+        DESCRIPTION.
+    nlos_pl : TYPE
+        DESCRIPTION.
+    nlos_ang : TYPE
+        DESCRIPTION.
+    dvec : TYPE, optional
+        DESCRIPTION. The default is None.
+    los_pl : TYPE, optional
+        DESCRIPTION. The default is None.
+    los_ang : TYPE, optional
+        DESCRIPTION. The default is None.
+
+    Returns
+    -------
+    None.
+
+    """
     
+   
+    # Find the links with LOS paths
+    Ilos = np.where(los_exists)[0]
+    
+    # Copy the NLOS path losses and angles
+    pl = np.copy(nlos_pl)
+    ang = np.copy(nlos_ang)
+    
+    # On the links with LOS paths, move over the
+    # the NLOS data and insert the NLOS paths
+    pl[Ilos,1:] = pl[Ilos,:-1]
+    ang[Ilos,1:,:] = ang[Ilos,:-1,:]
+    pl[Ilos,0] = los_pl[Ilos]
+    ang[Ilos,0,:] = los_ang[Ilos,:]
+    
+        
+    return pl, ang
+        
+        
+        
+def get_link_state(los_exists, nlos_pl, pl_max):
+    """
+    Computes the link state
+
+    Parameters
+    ----------
+    los_exists : (nlink,) array of boolean
+        indicates if each link has an LOS path or not
+    nlos_pl : (nlink,npaths_max) array of floats
+        path loss for each path in the link
+    pl_max : scalar
+        Maximum path loss.  Values close to this value
+        are considered non-existent
+
+    Returns
+    -------
+    link_state : (nlink,) array of int
+        indicates link state: no_link, los_link, nlos_link            
+    """
+    
+    # Compute number of paths for each link
+    npath = np.sum((nlos_pl < pl_max-0.1), axis=1)
+    
+    # Compute link state
+    Ilos  = (los_exists==1)
+    Ino   = (los_exists==0) & (npath==0)
+    Inlos = (los_exists==0) & (npath>0)
+    
+    link_state = ChanMod.los_link*Ilos + ChanMod.nlos_link*Inlos\
+        + ChanMod.no_link*Ino
+    return link_state    
