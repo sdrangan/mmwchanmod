@@ -13,7 +13,6 @@ For all the NLOS paths, the program:
 import numpy as np
 import matplotlib.pyplot as plt
 import pickle
-import models
 import tensorflow.keras.backend as K
 from models import ChanMod, DataFormat, get_link_state
 

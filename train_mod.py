@@ -33,7 +33,7 @@ from models import ChanMod
 Parse arguments from command line
 """
 parser = argparse.ArgumentParser(description='Trains the channel model')
-parser.add_argument('--nlatent',action='store',default=20,type=int,\
+parser.add_argument('--nlatent',action='store',default=10,type=int,\
     help='number of latent variables')
 parser.add_argument('--npaths_max',action='store',default=20,type=int,\
     help='max number of paths per link')
@@ -43,9 +43,9 @@ parser.add_argument('--lr_link',action='store',default=1e-3,type=float,\
     help='learning rate for the link model')   
 parser.add_argument('--nepochs_path',action='store',default=2000,type=int,\
     help='number of epochs for training the path model')
-parser.add_argument('--lr_path',action='store',default=1e-3,type=float,\
+parser.add_argument('--lr_path',action='store',default=1e-4,type=float,\
     help='learning rate for the path model')     
-parser.add_argument('--out_var_min',action='store',default=1e-6,type=float,\
+parser.add_argument('--out_var_min',action='store',default=1e-4,type=float,\
     help='min variance in the decoder outputs.  Used for conditioning')     
 parser.add_argument('--init_stddev',action='store',default=10.0,type=float,\
     help='weight and bias initialization')
@@ -88,17 +88,22 @@ fit_path = not args.no_fit_path
 checkpoint_period = args.checkpoint_period
 
 # Overwrite parameters based on batch index
-lr_batch = [1e-3,1e-3,1e-3,1e-4,1e-4,1e-4]
-nlatent_batch = [10,20,30,10,20,30]
-dir_suffix = ['lr3_nl10', 'lr3_nl20', 'lr3_nl30',\
-              'lr4_nl10','lr4_nl20', 'lr4_nl30']    
+#lr_batch = [1e-3,1e-3,1e-3,1e-4,1e-4,1e-4]
+nlatent_batch = [10,10,10,20]
+nunits_enc_batch = [[50,20], [100,40], [200,80], [200,80]]
+nunits_dec_batch = [[20,50], [40,100], [80,200], [80,200]]
+dir_suffix = ['nl10_nu50', 'nl10_nu100', 'nl10_nu200', 'nl20_nu200']    
 if batch_ind >= 0:
-    model_dir = ('model_data_%s' % dir_suffix[batch_ind])
-    lr_path = lr_batch[batch_ind]
+    model_dir = ('/scratch/sr663/models_20200720/model_data_%s' % dir_suffix[batch_ind])
+    #lr_path = lr_batch[batch_ind]
     nlatent = nlatent_batch[batch_ind]
+    nunits_enc = nunits_enc[batch_ind]
+    nunits_dec = nunits_dec[batch_ind]
     print('batch_ind=%d' % batch_ind)
     print('model_dir= %s' % model_dir)
-    print('lr=%12.4e' % lr_path)
+    print('nunits_enc=%s' % str(nunits_enc))
+    print('nunits_dec=%s' % str(nunits_dec))
+    #print('lr=%12.4e' % lr_path)
     print('nlatent=%d' % nlatent)
     
 
