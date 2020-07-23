@@ -105,7 +105,7 @@ Generate synthentic data from trained model
 """
 
 # Model directory
-model_dir = 'models_20200719/model_data_lr4_nl10_mv4'
+model_dir = 'model_data'
 
 # Construct the channel model object
 K.clear_session()

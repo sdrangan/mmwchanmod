@@ -23,6 +23,7 @@ def cart_to_sph(d):
     
     # Compute radius
     r = np.sqrt(np.sum(d**2,axis=1))
+    r = np.maximum(r, 1e-8)
     
     # Compute angle of departure
     phi = np.arctan2(d[:,1], d[:,0])*180/np.pi

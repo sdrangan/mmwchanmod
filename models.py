@@ -738,7 +738,7 @@ class ChanMod(object):
         
         # 3D distance and vertical distance.
         # Note that vertical distance can be negative
-        d3d = np.sqrt(np.sum(dvec**2, axis=1))
+        d3d = np.maximum(np.sqrt(np.sum(dvec**2, axis=1)), 1)
         dvert = dvec[:,2]
         
         # Transform the condition variables
@@ -896,7 +896,7 @@ class ChanMod(object):
             LOS angles 
         """
         # Compute free space path loss from Friis' law
-        dist = np.sqrt(np.sum(dvec**2,axis=1))        
+        dist = np.maximum(np.sqrt(np.sum(dvec**2,axis=1)), 1)        
         lam = 3e8/self.fc
         los_pl = 20*np.log10(dist*4*np.pi/lam)
         
@@ -923,7 +923,7 @@ class ChanMod(object):
             Cell type.  One of terr_cell, aerial_cell
         link_state:  (nlink,) array of {no_link, los_link, nlos_link}            
             A value of `None` indicates that the link state should be
-            generated randomly
+            generated randomly from the link state predictor model
         nlos_only: Boolean
             If `True`, returns only the NLOS path data.
             If `False`, returns the LOS and NLOS path data.
@@ -936,12 +936,25 @@ class ChanMod(object):
         ang: (nlink,npaths_max,DataFormat.nangle) array
             Angles of each pathin each link
         """
+        # Get dimensions
+        nlink = dvec.shape[0]
+
+        # Generate random link states if needed
+        # Use the link state predictor network
+        if link_state is None:
+            prob = self.link_predict(dvec, cell_type) 
+            cdf = np.cumsum(prob, axis=1)            
+            link_state = np.zeros(nlink)
+            u = np.random.uniform(0,1,nlink)
+            for i in range(cdf.shape[1]-1):
+                I = np.where(u>cdf[:,i])[0]
+                link_state[I] = i+1
+                
         # Find the indices where there are some link
         # and where there is a LOS link
         Ilink = np.where(link_state != ChanMod.no_link)[0]
         Ilos  = np.where(link_state == ChanMod.los_link)[0]
-        los   = link_state == ChanMod.los_link
-        nlink = link_state.shape[0]
+        los   = link_state == ChanMod.los_link        
         
         # Get the condition variables and random noise
         U = self.transform_cond(dvec[Ilink], cell_type[Ilink], los[Ilink])

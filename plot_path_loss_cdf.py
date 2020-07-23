@@ -40,7 +40,8 @@ def comp_pl_omni(pl, pl_max):
         pl_omni = -10*np.log10( np.sum(10**(-0.1*pl[I]) ) )
     return pl_omni
 
-model_dir = 'models_20200719/model_data_lr4_nl10_mv4'
+model_dir = 'model_data'
+
 
 # Load the data
 fn = 'train_test_data.p'
@@ -64,7 +65,7 @@ chan_mod = ChanMod(pl_max=pl_max,model_dir=model_dir)
 chan_mod.load_link_model()    
 
 # Load the learned path model 
-chan_mod.load_path_model(weights_fn='path_weights.h5')
+chan_mod.load_path_model()
 npaths_max = chan_mod.npaths_max
 
 # Sample from the same conditions
@@ -83,10 +84,9 @@ for iplot, cell_type0 in enumerate(cell_types):
     pl_omni_dat = np.zeros(ns)
     pl_omni_rand = np.zeros(ns)
     for i in range(ns):
-        pl_omni_dat[i]  = comp_pl_omni(pl_rand[I[i],:npaths_max], pl_max)
-        pl_omni_rand[i] = comp_pl_omni(pl_dat[I[i],:npaths_max], pl_max)
+        pl_omni_rand[i]  = comp_pl_omni(pl_rand[I[i],:npaths_max], pl_max)
+        pl_omni_dat[i] = comp_pl_omni(pl_dat[I[i],:npaths_max], pl_max)
     
-    print(cell_type0)
     # Plot the CDFs
     plt.subplot(1,2,iplot+1)
     p = np.arange(ns)/ns

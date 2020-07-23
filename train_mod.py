@@ -1,20 +1,8 @@
-# -*- coding: utf-8 -*-
 """
-chan_mod.py:  VAE training of channel model data
+train_mod.py:  Training of the channel model
 
-We want to model the distribution of the channel data.
-In this case, each channel is a vector x[i,:] of the npaths_max
-received powers.  x[i,j] = 0 corresponds to no path.
-
-Also u[i,:] is the condition of the link.  In this case, ç
-u[i,:] = [log10(d), d] where d is the distance.
-
-We want to find the conditional pdf p(x|u).
-Note that a traditional VAE only finds p(x).
-
-
-Model this density as x = decoder(z,u)  where z is N(0,I)
-
+This program trains both the link state predictor
+and path VAE models from the ray tracing data.  
 """
 import numpy as np
 import matplotlib.pyplot as plt
@@ -89,6 +77,7 @@ checkpoint_period = args.checkpoint_period
 
 # Overwrite parameters based on batch index
 #lr_batch = [1e-3,1e-3,1e-3,1e-4,1e-4,1e-4]
+batch_ind = 0
 nlatent_batch = [10,10,10,20]
 nunits_enc_batch = [[50,20], [100,40], [200,80], [200,80]]
 nunits_dec_batch = [[20,50], [40,100], [80,200], [80,200]]
@@ -97,8 +86,8 @@ if batch_ind >= 0:
     model_dir = ('/scratch/sr663/models_20200720/model_data_%s' % dir_suffix[batch_ind])
     #lr_path = lr_batch[batch_ind]
     nlatent = nlatent_batch[batch_ind]
-    nunits_enc = nunits_enc[batch_ind]
-    nunits_dec = nunits_dec[batch_ind]
+    nunits_enc = nunits_enc_batch[batch_ind]
+    nunits_dec = nunits_dec_batch[batch_ind]
     print('batch_ind=%d' % batch_ind)
     print('model_dir= %s' % model_dir)
     print('nunits_enc=%s' % str(nunits_enc))

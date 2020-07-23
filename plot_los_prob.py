@@ -1,5 +1,5 @@
 """
-plot_link_mod:  Link model plot
+plot_los_prob.py:  Plots the LOS probability as a function of the position
 """
 import numpy as np
 import matplotlib.pyplot as plt
@@ -11,7 +11,7 @@ tfkm = tf.keras.models
 tfkl = tf.keras.layers
 import tensorflow.keras.backend as K
 
-from models import ChanMod
+from models import ChanMod, get_link_state
 
 
 # Load the data
@@ -26,6 +26,7 @@ chan_mod = ChanMod()
 # Load the link classifier model
 chan_mod.load_link_model()
     
+# Plot paramters
 cell_types = [ChanMod.aerial_cell,ChanMod.terr_cell]
 title = ['Aerial', 'Terrestrial']
 nplot = len(cell_types)
@@ -52,7 +53,7 @@ for i, cell_type0 in enumerate(cell_types):
     
 
     # Get the link state
-    ls_ts = chan_mod.get_link_state(dat['los_exists'], dat['nlos_pl'])
+    ls_ts = get_link_state(dat['los_exists'], dat['nlos_pl'], pl_max)
     
     # Extract the correct points    
     I = np.where(dat['cell_type'] == cell_type0)[0]
