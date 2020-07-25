@@ -1113,7 +1113,7 @@ class ChanMod(object):
         
         # Save the pre-processors
         with open(preproc_path,'wb') as fp:
-            pickle.dump([self.dat_scaler, self.cond_scaler, self.dly_scale,\
+            pickle.dump([self.pl_scaler, self.cond_scaler, self.dly_scale,\
                          self.pl_max, self.npaths_max, self.nlatent,\
                          self.nunits_enc, self.nunits_dec], fp)
             
