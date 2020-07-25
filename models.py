@@ -15,6 +15,13 @@ import os
 
 from spherical import spherical_add_sub, cart_to_sph
 
+class PhyConst(object):
+    """
+    Physical constants
+    """
+    light_speed = 2.99792458e8
+    
+
 class DataFormat(object):
     """
     Constants for data format
@@ -301,7 +308,6 @@ class ChanMod(object):
         
         
     
-    
     def transform_link(self,dvec,cell_type,fit=False):
         """
         Pre-processes input for the link classifier network
@@ -522,8 +528,12 @@ class ChanMod(object):
         """
         
         # Number of data inputs in the transformed domain
-        # For each point, there is one path loss and nangle angles
-        self.ndat = self.npaths_max*(1+DataFormat.nangle)
+        # For each sample and each path, there is:
+        # * one path loss value
+        # * nangle angles
+        # * one delay
+        # for a total of (2+nangle)*npaths_max parameters
+        self.ndat = self.npaths_max*(2+DataFormat.nangle)
         
         self.path_mod = CondVAE(\
             nlatent=self.nlatent, ndat=self.ndat, ncond=ChanMod.ncond,\
@@ -576,11 +586,13 @@ class ChanMod(object):
         Xtr = self.transform_data(\
             train_data['dvec'][Itr],\
             train_data['nlos_pl'][Itr,:self.npaths_max],\
-            train_data['nlos_ang'][Itr,:self.npaths_max,:], fit=True)
+            train_data['nlos_ang'][Itr,:self.npaths_max,:],\
+            train_data['nlos_dly'][Itr,:self.npaths_max], fit=True)
         Xts  = self.transform_data(\
-            train_data['dvec'][Its],\
-            train_data['nlos_pl'][Its,:self.npaths_max],\
-            train_data['nlos_ang'][Its,:self.npaths_max,:])
+            test_data['dvec'][Its],\
+            test_data['nlos_pl'][Its,:self.npaths_max],\
+            test_data['nlos_ang'][Its,:self.npaths_max,:],\
+            test_data['nlos_dly'][Its,:self.npaths_max])
         
         # Create the checkpoint callback
         batch_size = 100
@@ -608,6 +620,73 @@ class ChanMod(object):
         hist_path = os.path.join(self.model_dir, 'path_train_hist.p')        
         with open(hist_path,'wb') as fp:
             pickle.dump(self.path_hist.history, fp)
+            
+    def transform_dly(self, dvec, nlos_dly, fit=False):
+        """
+        Performs the transformation on the delay data
+
+        Parameters
+        ----------
+        dvec : (nlink,ndim) array, ndim=3
+            Vectors from cell to UAV for each link
+        nlos_dly : (nlink,npaths_max) array 
+            Absolute delay of each path in each link  
+        fit:  boolean
+            Indicates if transform is to be fit
+
+        Returns
+        -------
+        Xdly : (nlink,npaths_max)
+            Tranformed delay coordinates
+
+        """            
+        
+        # Compute LOS delay
+        dist = np.sqrt(np.sum(dvec**2,axis=1))        
+        los_dly = dist/PhyConst.light_speed
+        
+        # Compute delay relative to LOS delay
+        dly0 = np.maximum(0, nlos_dly - los_dly[:,None])
+                
+        # Transform the data with the scaler
+        # If fit is set, the transform is also learned
+        if fit:            
+            self.dly_scale = np.mean(dly0)
+        Xdly = dly0 / self.dly_scale
+            
+        return Xdly
+    
+    def inv_transform_dly(self, dvec, Xdly):
+        """
+        Performs the inverse transformation on the delay data
+
+        Parameters
+        ----------
+        dvec : (nlink,ndim) array, ndim=3
+            Vectors from cell to UAV for each link
+        Xdly : (nlink,npaths_max)
+            Tranformed delay coordinates
+
+        Returns
+        -------            
+        nlos_dly : (nlink,npaths_max) array 
+            Absolute delay of each path in each link  
+        """            
+        
+        # Compute LOS delay
+        dist = np.sqrt(np.sum(dvec**2,axis=1))        
+        los_dly = dist/PhyConst.light_speed
+        
+
+        # Inverse the transform
+        dly0 = Xdly * self.dly_scale
+        
+        # Compute the absolute delay
+        nlos_dly = dly0 + los_dly[:,None]
+               
+        return nlos_dly
+    
+            
             
     def transform_ang(self, dvec, nlos_ang, nlos_pl):
         """
@@ -773,16 +852,17 @@ class ChanMod(object):
             Transform data features
         """
         
-        # Transform the condition variables
+        # Compute the path loss below the maximum path loss.
+        # Hence a value of 0 corresponds to a maximum path loss value
         X0 = self.pl_max - nlos_pl[:,:self.npaths_max]     
         
         # Transform the data with the scaler.
         # If fit is set, the transform is also learned
         if fit:
-            self.dat_scaler = sklearn.preprocessing.MinMaxScaler()
-            Xpl = self.dat_scaler.fit_transform(X0)
+            self.pl_scaler = sklearn.preprocessing.MinMaxScaler()
+            Xpl = self.pl_scaler.fit_transform(X0)
         else:
-            Xpl = self.dat_scaler.transform(X0)
+            Xpl = self.pl_scaler.transform(X0)
         return Xpl
     
     def inv_transform_pl(self, Xpl):
@@ -804,7 +884,7 @@ class ChanMod(object):
         # Invert the scaler
         Xpl = np.maximum(0,Xpl)
         Xpl = np.minimum(1,Xpl)
-        X0 = self.dat_scaler.inverse_transform(Xpl)
+        X0 = self.pl_scaler.inverse_transform(Xpl)
         
         # Sort and make positive
         X0 = np.maximum(0, X0)
@@ -815,7 +895,7 @@ class ChanMod(object):
                 
         return nlos_pl        
         
-    def transform_data(self, dvec, nlos_pl, nlos_ang, fit=False):
+    def transform_data(self, dvec, nlos_pl, nlos_ang, nlos_dly, fit=False):
         """
         Pre-processing transform on the data
 
@@ -829,6 +909,8 @@ class ChanMod(object):
         nlos_ang : (nlink,npaths_max,nangle) array
             Angles of each path in each link.  
             The angles are in degrees           
+        nlos_dly : (nlink,npaths_max) array 
+            Absolute delay of each path (in seconds)
         fit : boolean
             flag indicating if the transform should be fit            
 
@@ -844,8 +926,11 @@ class ChanMod(object):
         # Transform the angles
         Xang = self.transform_ang(dvec,nlos_ang,nlos_pl)
         
+        # Transform the delays
+        Xdly = self.transform_dly(dvec, nlos_dly, fit)
+        
         # Concatenate
-        X = np.hstack((Xpl, Xang))
+        X = np.hstack((Xpl, Xang, Xdly))
         return X
     
     def inv_transform_data(self, dvec, X):
@@ -867,17 +952,22 @@ class ChanMod(object):
         nlos_ang : (nlink,npaths_max,nangle) array
             Angles of each path in each link.  
             The angles are in degrees
+        nlos_dly : (nlink,npaths_max) array 
+            Absolute delay of each path (in seconds)            
         """
         
         # Split
         Xpl = X[:,:self.npaths_max]
-        Xang = X[:,self.npaths_max:]
+        Xang = X[:,self.npaths_max:self.npaths_max*(DataFormat.nangle+1)]
+        Xdly = X[:,self.npaths_max*(DataFormat.nangle+1):]
         
         # Invert the transforms
         nlos_pl = self.inv_transform_pl(Xpl)
         nlos_ang = self.inv_transform_ang(dvec, Xang)
+        nlos_dly = self.inv_transform_dly(dvec, Xdly)
+        
                 
-        return nlos_pl, nlos_ang
+        return nlos_pl, nlos_ang, nlos_dly
     
     def get_los_path(self, dvec):
         """
@@ -894,6 +984,8 @@ class ChanMod(object):
             LOS path losses computed from Friis' Law
         los_ang:  (n,DataFormat.nangle) = (n,4) array
             LOS angles 
+        los_dly:  (n,) array
+            Delay of the paths computed from the speed of light
         """
         # Compute free space path loss from Friis' law
         dist = np.maximum(np.sqrt(np.sum(dvec**2,axis=1)), 1)        
@@ -907,8 +999,11 @@ class ChanMod(object):
         # Stack the angles
         los_ang = np.stack((los_aoa_phi, los_aoa_theta,\
                             los_aod_phi, los_aod_theta), axis=-1)
+            
+        # Compute the delay
+        los_dly = dist/PhyConst.light_speed
     
-        return los_pl, los_ang
+        return los_pl, los_ang, los_dly
         
     
     def sample_path(self, dvec, cell_type, link_state=None, nlos_only=False):
@@ -935,6 +1030,8 @@ class ChanMod(object):
             A value of pl_max indicates no path
         ang: (nlink,npaths_max,DataFormat.nangle) array
             Angles of each pathin each link
+        dly : (nlink,npaths_max) array 
+            Absolute delay of each path in each link in seconds.           
         """
         # Get dimensions
         nlink = dvec.shape[0]
@@ -966,30 +1063,34 @@ class ChanMod(object):
         
         # Compute the inverse transform to get back the path loss
         # and angle data
-        nlos_pl, nlos_ang = self.inv_transform_data(dvec[Ilink], X)
+        nlos_pl, nlos_ang , nlos_dly = self.inv_transform_data(dvec[Ilink], X)
         
         # Create arrays for the PL and angles
         pl  = np.tile(self.pl_max, (nlink,self.npaths_max))
         ang = np.zeros((nlink,self.npaths_max,DataFormat.nangle))
+        dly  = np.tile(self.pl_max, (nlink,self.npaths_max))
         
         # Place the NLOS data in the arrays 
         pl[Ilink]  = nlos_pl
         ang[Ilink] = nlos_ang
+        dly[Ilink]  = nlos_dly
         
         if not nlos_only:
         
             # Compute the PL and angles for the LOS paths
-            los_pl, los_ang = self.get_los_path(dvec[Ilos])
+            los_pl, los_ang, los_dly = self.get_los_path(dvec[Ilos])
             
             # Add the path loss and angles to the NLOS paths
             # On the links with LOS paths, move over the
             # the NLOS data and insert the NLOS paths
             pl[Ilos,1:] = pl[Ilos,:-1]
             ang[Ilos,1:,:] = ang[Ilos,:-1,:]
+            dly[Ilos,1:] = dly[Ilos,:-1]
             pl[Ilos,0] = los_pl
             ang[Ilos,0,:] = los_ang
-        
-        return pl, ang
+            dly[Ilos,0] = los_dly
+            
+        return pl, ang, dly
             
     
     def save_path_model(self, weights_fn='path_weights.h5', preproc_fn='path_preproc.p'):
@@ -1012,9 +1113,9 @@ class ChanMod(object):
         
         # Save the pre-processors
         with open(preproc_path,'wb') as fp:
-            pickle.dump([self.dat_scaler, self.cond_scaler, self.pl_max,\
-                         self.npaths_max, self.nlatent, self.nunits_enc,\
-                         self.nunits_dec], fp)
+            pickle.dump([self.dat_scaler, self.cond_scaler, self.dly_scale,\
+                         self.pl_max, self.npaths_max, self.nlatent,\
+                         self.nunits_enc, self.nunits_dec], fp)
             
         # Save the VAE weights
         self.path_mod.vae.save_weights(weigths_path, save_format='h5')
@@ -1037,7 +1138,7 @@ class ChanMod(object):
         
         # Load the pre-processors
         with open(preproc_path,'rb') as fp:
-            self.dat_scaler, self.cond_scaler, self.pl_max,\
+            self.pl_scaler, self.cond_scaler, self.dly_scale, self.pl_max,\
                 self.npaths_max, self.nlatent, self.nunits_enc,\
                 self.nunits_dec = pickle.load(fp)
             
@@ -1072,30 +1173,38 @@ def set_initialization(mod, layer_names, kernel_stddev=1.0, bias_stddev=1.0):
                              (nout,)).astype(np.float32)
         layer.set_weights([W,b])
         
-def combine_los_nlos(nlos_pl, nlos_ang,\
-                     los_exists=None, los_pl=None, los_ang=None, fc=28e9):
+def combine_los_nlos(nlos_pl, nlos_ang, nlos_dly,\
+                     los_exists, los_pl, los_ang, los_dly):
     """
     Combines LOS and NLOS path loss data
 
     Parameters
-    ----------
-    link_state : TYPE
-        DESCRIPTION.
-    nlos_pl : TYPE
-        DESCRIPTION.
-    nlos_ang : TYPE
-        DESCRIPTION.
-    dvec : TYPE, optional
-        DESCRIPTION. The default is None.
-    los_pl : TYPE, optional
-        DESCRIPTION. The default is None.
-    los_ang : TYPE, optional
-        DESCRIPTION. The default is None.
+    ----------    
+    nlos_pl : (nlink,npaths_max) array
+        NLOS path losses for each path in dB
+    nlos_ang : (nlink,npaths_max,nangle) array 
+        Set of angles of each path in degrees
+    nlos_dly : (nlink,npaths_max) array
+        NLOS absolute delays of each path in seconds
+    los_exists : (nlink,) array of booleans
+        For each link, indicates if there is a LOS path.
+        The LOS paths will be added only on these links
+    los_pl : (nlink,) array
+        LOS path losses for each link in dB.  
+    los_ang : (nlink,npaths_max,) array 
+        Set of LOS angles of each link
+    los_dly : (nlink,) array
+        LOS absolute delays of each path in seconds
+        
 
     Returns
     -------
-    None.
-
+    pl : (nlink,npaths_max) array
+        Combined path losses for each path in dB
+    ang : (nlink,npaths_max,nangle) array 
+        Combined of angles of each path in degrees
+    dly : (nlink,npaths_max) array
+        Combined absolute delays of each path in seconds
     """
     
    
@@ -1105,6 +1214,7 @@ def combine_los_nlos(nlos_pl, nlos_ang,\
     # Copy the NLOS path losses and angles
     pl = np.copy(nlos_pl)
     ang = np.copy(nlos_ang)
+    dly = np.copy(nlos_dly)
     
     # On the links with LOS paths, move over the
     # the NLOS data and insert the NLOS paths
@@ -1112,6 +1222,8 @@ def combine_los_nlos(nlos_pl, nlos_ang,\
     ang[Ilos,1:,:] = ang[Ilos,:-1,:]
     pl[Ilos,0] = los_pl[Ilos]
     ang[Ilos,0,:] = los_ang[Ilos,:]
+    dly[Ilos,0] = los_dly[Ilos]
+    dly[Ilos,0,:] = los_dly[Ilos,:]
     
         
     return pl, ang

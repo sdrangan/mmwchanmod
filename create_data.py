@@ -7,6 +7,7 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import pickle
+from models import DataFormat
 
 
 # Parameters
@@ -18,13 +19,15 @@ ts_frac = 0.3   # fraction of samples for test vs. train
 tx_pow_dbm = 16 # TX power in dBm
 
 # Angles will be stored as [aoa_az,aoa_el,aod_az,aod_el]
-nangle = 4
+nangle = DataFormat.nangle
 
 # Create empty arrays on which to stack
 nlos_pl = np.zeros((0,npath_max))
+nlos_dly = np.zeros((0,npath_max))
 los_exists = np.zeros(0,dtype=np.int)
 dvec = np.zeros((0,ndim))
 los_pl = np.zeros(0)
+los_dly = np.zeros(0)
 cell_type = np.zeros(0,dtype=np.int)
 nlos_ang = np.zeros((0,npath_max,nangle))
 los_ang = np.zeros((0,nangle))
@@ -58,6 +61,7 @@ for height in heights:
     rx_pow_dbm = df['rx_power_dbm'].to_numpy()    
     ang_path = df[['aoa_phi_deg','aoa_theta_deg',\
                    'doa_phi_deg','doa_theta_deg']].to_numpy()
+    toa_path = df['toa_sec'].to_numpy()
         
     # Get dimensions
     nrx = rx_pos.shape[0]
@@ -70,8 +74,10 @@ for height in heights:
     los_exists0 = np.zeros((nrx,ntx), dtype=np.int)
     cell_type0 = np.zeros((nrx,ntx), dtype=np.int)
     los_pl0 = np.zeros((nrx,ntx))
+    los_dly0 = np.zeros((nrx,ntx))
     npath_nlos0 = np.zeros((nrx,ntx),dtype=np.int)
     nlos_pl0 = np.tile(pl_max,(nrx,ntx,npath_max))    
+    nlos_dly0 = np.zeros((nrx,ntx,npath_max)) 
     los_ang0 = np.zeros((nrx,ntx,nangle))
     nlos_ang0 = np.zeros((nrx,ntx,npath_max,nangle))
     ang0 = np.zeros((nrx,ntx,npath_max,nangle))
@@ -86,20 +92,10 @@ for height in heights:
         itx = txid[ipath]
         pl_path = tx_pow_dbm - rx_pow_dbm[ipath]
         
-        
-        if ((itx==itx_prev) & (irx==irx_prev)):
-            # Same tx-rx pair
-            pathNum += 1
-        else: 
-            # New tx-rx pair
-            pathNum = 0
-            
-        ang0[irx,itx,pathNum,:] = ang_path[ipath,:]
-            
-        
         if los_path[ipath]:
             # LOS path case.  
             los_pl0[irx,itx] = pl_path
+            los_dly0[irx,itx] = toa_path[ipath]
             los_ang0[irx,itx,:] = ang_path[ipath,:]
             los_exists0[irx,itx] = 1        
             
@@ -107,29 +103,27 @@ for height in heights:
             # NLOS path case
             j = npath_nlos0[irx,itx]        
             nlos_pl0[irx,itx,j] = pl_path
+            nlos_dly0[irx,itx,j] = toa_path[ipath]
             npath_nlos0[irx,itx] += 1 
             nlos_ang0[irx,itx,j,:] = ang_path[ipath,:]
         
         
         cell_type0[irx,itx,] = cell_type_path[ipath]
-        
-        itx_prev = itx
-        irx_prev = irx
+                
         
     # Append to arrays
     nlos_pl = np.vstack((nlos_pl, nlos_pl0.reshape((nrx*ntx,npath_max)) ))
+    nlos_dly = np.vstack((nlos_dly, nlos_dly0.reshape((nrx*ntx,npath_max)) ))
     los_exists = np.hstack((los_exists, los_exists0.ravel() ))
     cell_type = np.hstack((cell_type, cell_type0.ravel() ))
     dvec0 = dvec0.reshape((nrx*ntx,ndim))
     dvec = np.vstack((dvec, dvec0))
     los_pl = np.hstack((los_pl, los_pl0.ravel())) 
+    los_dly = np.hstack((los_dly, los_dly0.ravel())) 
     los_ang = np.vstack((los_ang, los_ang0.reshape((nrx*ntx,nangle)) ))
     nlos_ang = np.vstack((nlos_ang,\
                           nlos_ang0.reshape((nrx*ntx,npath_max,nangle)) ))
-    
-    ang = np.vstack((ang,ang0.reshape((nrx*ntx,npath_max,nangle)) ))
-        
-      
+
     
 # Split into training and test
 ns = dvec.shape[0]
@@ -139,17 +133,19 @@ I = np.random.permutation(ns)
 train_data = {'dvec': dvec[I[:ntr]], 'los_exists': los_exists[I[:ntr]], \
               'nlos_pl': nlos_pl[I[:ntr]], 'los_pl':  los_pl[I[:ntr]],\
               'cell_type': cell_type[I[:ntr]], 'nlos_ang': nlos_ang[I[:ntr]],\
-              'los_ang': los_ang[I[:ntr]], 'ang': ang[I[:ntr]]}
+              'los_ang': los_ang[I[:ntr]], 'nlos_dly': nlos_dly[I[:ntr]],\
+              'los_dly': los_dly[I[:ntr]] }
 test_data = {'dvec': dvec[I[ntr:]], 'los_exists': los_exists[I[ntr:]], \
              'nlos_pl': nlos_pl[I[ntr:]], 'los_pl':  los_pl[I[ntr:]],\
              'cell_type': cell_type[I[ntr:]], 'nlos_ang': nlos_ang[I[ntr:]],\
-              'los_ang': los_ang[I[ntr:]], 'ang': ang[I[:nts]]}
+              'los_ang': los_ang[I[ntr:]], 'nlos_dly': nlos_dly[I[ntr:]],\
+              'los_dly': los_dly[I[ntr:]]}
     
-
-fn = 'train_test_data.p'
-with open(fn,'wb') as fp:
-    pickle.dump([train_data,test_data,pl_max], fp)    
-print('Created file %s' % fn)
+if 1:
+    fn = 'train_test_data.p'
+    with open(fn,'wb') as fp:
+        pickle.dump([train_data,test_data,pl_max], fp)    
+    print('Created file %s' % fn)
 
         
         

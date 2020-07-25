@@ -117,7 +117,7 @@ for iplot, cell_type0 in enumerate(cell_types):
     
     for i in trange(npts):
         # Generate random channels
-        pl, ang = chan_mod.sample_path(dvec, cell_type) 
+        pl, ang, dly = chan_mod.sample_path(dvec, cell_type) 
             
         # Compute the UE gain
         ue_theta = ang[:,:,DataFormat.aoa_theta_ind]

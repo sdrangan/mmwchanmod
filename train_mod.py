@@ -77,13 +77,12 @@ checkpoint_period = args.checkpoint_period
 
 # Overwrite parameters based on batch index
 #lr_batch = [1e-3,1e-3,1e-3,1e-4,1e-4,1e-4]
-batch_ind = 0
 nlatent_batch = [10,10,10,20]
 nunits_enc_batch = [[50,20], [100,40], [200,80], [200,80]]
 nunits_dec_batch = [[20,50], [40,100], [80,200], [80,200]]
 dir_suffix = ['nl10_nu50', 'nl10_nu100', 'nl10_nu200', 'nl20_nu200']    
 if batch_ind >= 0:
-    model_dir = ('/scratch/sr663/models_20200720/model_data_%s' % dir_suffix[batch_ind])
+    model_dir = ('/scratch/sr663/models_20200726/model_data_%s' % dir_suffix[batch_ind])
     #lr_path = lr_batch[batch_ind]
     nlatent = nlatent_batch[batch_ind]
     nunits_enc = nunits_enc_batch[batch_ind]

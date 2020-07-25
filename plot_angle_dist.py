@@ -118,7 +118,7 @@ chan_mod.load_link_model()
 chan_mod.load_path_model()
 
 # Sample from the same conditions as the data
-nlos_pl_rand, nlos_ang_rand = chan_mod.sample_path(dvec,\
+nlos_pl_rand, nlos_ang_rand, nlos_dly_rand = chan_mod.sample_path(dvec,\
         dat['cell_type'][Ilink], ls, nlos_only=True)
     
 """

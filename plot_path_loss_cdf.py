@@ -51,8 +51,8 @@ with open(fn, 'rb') as fp:
 # Combine the LOS and NLOS path data
 data = test_data
 pl_dat, ang_dat = combine_los_nlos(\
-    data['nlos_pl'], data['nlos_ang'], data['los_exists'],\
-    data['los_pl'], data['los_ang'] )
+    data['nlos_pl'], data['nlos_ang'], data['nlos_dly'], data['los_exists'],\
+    data['los_pl'], data['los_ang'], data['los_dly'] )
     
 # Get the link state
 link_state = get_link_state(data['los_exists'], data['nlos_pl'], pl_max)
@@ -69,7 +69,7 @@ chan_mod.load_path_model()
 npaths_max = chan_mod.npaths_max
 
 # Sample from the same conditions
-pl_rand, ang_rand = chan_mod.sample_path(data['dvec'],\
+pl_rand, ang_rand, dly_rand = chan_mod.sample_path(data['dvec'],\
         data['cell_type'], link_state)
 
     
