@@ -21,7 +21,7 @@ from models import ChanMod
 Parse arguments from command line
 """
 parser = argparse.ArgumentParser(description='Trains the channel model')
-parser.add_argument('--nlatent',action='store',default=10,type=int,\
+parser.add_argument('--nlatent',action='store',default=20,type=int,\
     help='number of latent variables')
 parser.add_argument('--npaths_max',action='store',default=20,type=int,\
     help='max number of paths per link')
@@ -38,10 +38,10 @@ parser.add_argument('--out_var_min',action='store',default=1e-4,type=float,\
 parser.add_argument('--init_stddev',action='store',default=10.0,type=float,\
     help='weight and bias initialization')
 parser.add_argument('--nunits_enc',action='store',nargs='+',\
-    default=[100,50],type=int,\
+    default=[200,80],type=int,\
     help='num hidden units for the encoder')    
 parser.add_argument('--nunits_dec',action='store',nargs='+',\
-    default=[50,100],type=int,\
+    default=[80,200],type=int,\
     help='num hidden units for the decoder')    
 parser.add_argument('--nunits_link',action='store',nargs='+',\
     default=[50,25],type=int,\
@@ -76,6 +76,7 @@ fit_path = not args.no_fit_path
 checkpoint_period = args.checkpoint_period
 
 # Overwrite parameters based on batch index
+# This is used in HPC training with multiple batches
 #lr_batch = [1e-3,1e-3,1e-3,1e-4,1e-4,1e-4]
 nlatent_batch = [10,10,10,20]
 nunits_enc_batch = [[50,20], [100,40], [200,80], [200,80]]

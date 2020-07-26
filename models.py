@@ -251,7 +251,7 @@ class ChanMod(object):
     ncond = 5      # num condition features for path model
         
     def __init__(self,npaths_max=25,pl_max=200, nlatent=10,\
-                 nunits_enc=(50,20), nunits_dec=(20,50), \
+                 nunits_enc=(200,80), nunits_dec=(80,200), \
                  nunits_link=(25,10), add_zero_los_frac=0.25,out_var_min=1e-4,\
                  init_bias_stddev=10.0, init_kernel_stddev=10.0,\
                  model_dir='model_data', fc=28e9):
@@ -1220,13 +1220,12 @@ def combine_los_nlos(nlos_pl, nlos_ang, nlos_dly,\
     # the NLOS data and insert the NLOS paths
     pl[Ilos,1:] = pl[Ilos,:-1]
     ang[Ilos,1:,:] = ang[Ilos,:-1,:]
+    dly[Ilos,1:] = dly[Ilos,:-1]
     pl[Ilos,0] = los_pl[Ilos]
     ang[Ilos,0,:] = los_ang[Ilos,:]
     dly[Ilos,0] = los_dly[Ilos]
-    dly[Ilos,0,:] = los_dly[Ilos,:]
-    
-        
-    return pl, ang
+            
+    return pl, ang, dly
         
         
         

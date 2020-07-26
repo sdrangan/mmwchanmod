@@ -105,6 +105,7 @@ Generate synthentic data from trained model
 """
 
 # Model directory
+#model_dir = 'models_20200726/model_data_nl20_nu200'
 model_dir = 'model_data'
 
 # Construct the channel model object
