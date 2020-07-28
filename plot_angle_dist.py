@@ -16,6 +16,8 @@ import pickle
 import tensorflow.keras.backend as K
 from models import ChanMod, DataFormat, get_link_state
 
+
+
 def plot_ang_dist(chan_mod,dvec,nlos_ang,nlos_pl,iang,np_plot=10):
     """
     Plots the conditional distribution of the relative angle.
@@ -74,6 +76,10 @@ def plot_ang_dist(chan_mod,dvec,nlos_ang,nlos_pl,iang,np_plot=10):
     plt.imshow(log_prob, extent=[np.min(dedges),np.max(dedges),\
                np.min(ang_edges),np.max(ang_edges)], aspect='auto')   
 
+"""
+Parameters
+"""
+fmt = 'eps'
 
 """
 Load the true data
@@ -105,7 +111,6 @@ Generate synthentic data from trained model
 """
 
 # Model directory
-#model_dir = 'models_20200726/model_data_nl20_nu200'
 model_dir = 'model_data'
 
 # Construct the channel model object
@@ -125,6 +130,7 @@ nlos_pl_rand, nlos_ang_rand, nlos_dly_rand = chan_mod.sample_path(dvec,\
 """
 Plot the angular distributions
 """    
+plt.rcParams.update({'font.size': 16})
 plt.figure(figsize=[10,10])
 ang_str = ['AoA Az', 'AoA El', 'AoD Az', 'AoD El']
 for iang in range(4):
@@ -154,7 +160,9 @@ if 0:
     cax = plt.axes([0.92, 0.1, 0.05, 0.8])
     plt.colorbar(cax=cax)
     
-plt.savefig('angle_dist.png')
+# Print image    
+fn = 'angle_dist.' + fmt
+plt.savefig(fn)
 
     
 

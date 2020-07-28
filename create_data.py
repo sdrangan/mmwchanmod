@@ -33,22 +33,26 @@ nlos_ang = np.zeros((0,npath_max,nangle))
 los_ang = np.zeros((0,nangle))
 ang = np.zeros((0,npath_max,nangle))
 
+# Find the paths of all the subdirectories to process
+raw_data_dir = 'uav_ray_trace'
+subfolders = [f.path for f in os.scandir(raw_data_dir) if f.is_dir()]
+
+    
 # Loop over the heights to extract the data
-for height in heights:
+for subfolder in subfolders:
     
     # Display progress
-    matlab_dir = '..\Remcom_Channel_Stats\%dm' % height
-    print('Processing directory %s' % matlab_dir)
+    print('Processing directory %s' % subfolder)
     
     # Load the path table
-    filename = 'paths%d.csv' % height
-    df = pd.read_table(filename, sep=',')
+    fn = subfolder + os.path.sep + 'paths.csv'
+    df = pd.read_table(fn, sep=',')
     
     # Load the RX and TX locations    
-    fn = matlab_dir + os.path.sep + 'RX_locations.mat'
+    fn = subfolder + os.path.sep + 'RX_locations.mat'
     mat = scipy.io.loadmat(fn)
     rx_pos = mat['rxpos']
-    fn = matlab_dir + os.path.sep + 'TX_locations.mat'
+    fn = subfolder + os.path.sep + 'TX_locations.mat'
     mat = scipy.io.loadmat(fn)
     tx_pos = mat['txpos']
     
@@ -124,6 +128,7 @@ for height in heights:
     nlos_ang = np.vstack((nlos_ang,\
                           nlos_ang0.reshape((nrx*ntx,npath_max,nangle)) ))
 
+
     
 # Split into training and test
 ns = dvec.shape[0]
@@ -140,12 +145,12 @@ test_data = {'dvec': dvec[I[ntr:]], 'los_exists': los_exists[I[ntr:]], \
              'cell_type': cell_type[I[ntr:]], 'nlos_ang': nlos_ang[I[ntr:]],\
               'los_ang': los_ang[I[ntr:]], 'nlos_dly': nlos_dly[I[ntr:]],\
               'los_dly': los_dly[I[ntr:]]}
-    
-if 1:
-    fn = 'train_test_data.p'
-    with open(fn,'wb') as fp:
-        pickle.dump([train_data,test_data,pl_max], fp)    
-    print('Created file %s' % fn)
+
+# Write the train test data        
+fn = 'train_test_data.p'
+with open(fn,'wb') as fp:
+    pickle.dump([train_data,test_data,pl_max], fp)    
+print('Created file %s' % fn)
 
         
         

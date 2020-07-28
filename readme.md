@@ -1,27 +1,44 @@
-# UAV millimeter wave channel modeling 
+# UAV Millimeter Wave Channel Modeling Using Variational Auto-Encoders
 
-The millimeter wave (mmWave) bands are being increasingly considered for wireless communication to UAVs (unmanned aerial vehicles, also called drones).  Communincation in these frequencies offers the possibility of supporting massive data rates at low latency for real-time sensor and camera data transfer, remote control, and situations when the UAV acts as an aerial base station.  This project seeks to use machine learning techniques to model the channel between the UAV and ground base stations.   The project is still under work.
+Sundeep Rangan, William Xia, Vasilii Semkin, Marco Mezzavilla, Giuseppe Loianno (NYU)
+Giovanni Geraci, Angel Lozano (UPF, Barcelona)
 
-## Data 
-The data comes from simulations using powerful ray tracer, [RemCom Wireless Insite](https://www.remcom.com/wireless-insite-em-propagation-software).  RemCom generously donated this tool for this project.  Several UAV and cell locations were placed in an urban region and the channel characteristics between each UAV-cell were simulated.  There are two cell types considered:
+The millimeter wave (mmWave) bands are being increasingly considered for wireless communication to UAVs (unmanned aerial vehicles, also called drones).  Communincation in these frequencies offers the possibility of supporting massive data rates at low latency for real-time sensor and camera data transfer, remote control, and situations when the UAV acts as an aerial base station. Critical to evaluating algorithms for UAVs are statistical channel models that describe the distribution of channel parameters seen in typical scenarios.  Algorithms for many procedures including beamforming and equalization require so-called *double-directional wideband models* where the channel in each link is described by a set of paths with each path having a path loss, delay and angles of arrival and departure.  Wideband double directional descriptions have large numbers of parameters with potentially complex statistical relationships.  This project seeks to use machine learning techniques to develop generative statistical models from data.
+
+##  Generative Model
+This project considers a generative model based on a cascade of two networks:
+*  A *link predictor network* that predicts the link state (LOS,NLOS and no link) from the link conditions.  The link conditions are the 3D TX-RX vector and the cell type .   The cell type is either a terrestrial street-level cell or aerial rooftop-mounted cells as described below.  The link predictor network is realized using a fully connected neural network.
+* A *path model* that generates random samples of the path data (path losses, delays, and angles) from the link conditions and link state.  This is modeled using a conditional variational auto-encoder (CVAE).  The CVAE encoder and decoder are also realized as fully connected neural networks.
+
+## Raytracing Data
+Training large neural networks requires large amounts of data, not currently available from actual channel measurements.  The data in this simulation thus comes from simulations using powerful ray tracer, [RemCom Wireless Insite](https://www.remcom.com/wireless-insite-em-propagation-software).  RemCom generously donated this tool for this project.  Several UAV and cell locations were placed in an urban region and the channel characteristics between each UAV-cell were simulated.  There are two cell types considered:
 * Aerial cells:  These are cell sites located on rooftops and would be targeted for aerial coverage.
-* Terrestrial cells:  These are cell sites located at street level locations primarily targeting terrestrial users.  We include these sites in the simulation to determine the interference from UAVs and also to see if these cells can provide coverage, at least for low flying UAVs.
+* Terrestrial cells:  These are cell sites located at street level locations primarily targeting terrestrial users.  We include these sites in the simulation to determine the interference from UAVs and also to see if these cells can provide coverage, at least for low flying UAVs.  
 
-The final data consists of over 20000 links.  Each link is decribed by a set of paths with each path having a path loss, delay and angles of arrival and departure.  
+Each sample consists of one link from one UAV location to one cell location.  There are 180 UAV locations and 120 cell locations resulting in a final data set consists of 180 x 120=21600 samples.   You can directly download the training and test data with the command:
+```
+   python3 download.py --train_test_data
+```
+This will create a pickle file, `train_test_data.p`, that contains dictionaries `train_data` and `test_data` with all the data.  But, if you wish to create the data from scratch:
+*  Run the command `python3 download.py --raw_data`.  This will download and extract the raw data into the directory `uav_ray_trace`.
+*  Run the command `python3 create_data.py`.  This will create the file `train_test_data.p` in your local directory.
 
-## Modeling
-When this project is completed, the models has two components:
-*  A *link predictor model* that predicts the link state (LOS,NLOS and no link) from the link conditions.  The link conditions are the 3D TX-RX vector and the cell type and is based on a simple neural network.
-* A *path model* that generates random samples of the path data (path losses, gains, and angles) from the link conditions.  This is modeled using a conditional variational auto-encoder.
+## Training the Modeling 
+Once the data is downloaded, you can train the network with the command:
+```
+python3 train_mod.py --nepochs_path 10000 --model_dir model_data
+```
+The program will train both the link predictor network and the path CVAE.  The weights for both networks and other data will be stored in the directory `model_data`. 
 
-## Running the programs
-The main files are:
-* `create_data.py`:  This creates the training and test data from the Remcom data.  You do not need to re-run this program since the training and test data `train_test_data.p` is included in the repository.
-* `train_mod.py`:  This will train the link and path models.  You can run this with the command:
-   ```
-   python3 train_mod.py --nepochs_path 2000 --model_dir model_data
-   ```
-   Right now, you have to run the training for a huge nmber of epochs for decent results.  Not sure why. If you would like to speed things up, run this on the NYU HPC cluster by witht the [following commands](./hpc_notes.md).
-* `plot_los_prob.py`:  This will produce a plot of the predicted LOS probabilites as a function of distance.
+Since the training will require a large number of epochs, you will likely want to run this on the HPC cluster.  Instructions for running on the NYU cluster can be found [here](./hpc_notes.md).  The cluster is also useful for running multiple training instances for hyper-parameter optimization.  
+
+## Downloading a Pre-Trained Model
+To avoid re-training the model from scratch, you can download the pre-trained model with `python3 download.py --model_data`. This will create the `model_data` directory in your local path.
+
+## Using the Model
+Once you have either trained the model from scratch or downloaded the pre-trained model, you can see examples of its use:
+* `plot_los_prob.py`:  This will produce a plot of the predicted LOS probabilites as a function of the horizontal and vertical distance.
 * `plot_path_loss_cdf.py`:  This will produce a plot of the path loss CDF predicted by the model and compares the CDF on the test data.  
+* `plot_path_loss_cdf.py`:  This will produce a plot of the RMS delay spread CDF predicted by the model and compares the CDF on the test data.  
+* `plot_snr.py`:  Plots the predicted median SNR in a single cell as a function of horizontal and vertical position.
    

@@ -72,7 +72,8 @@ npaths_max = chan_mod.npaths_max
 pl_rand, ang_rand, dly_rand = chan_mod.sample_path(data['dvec'],\
         data['cell_type'], link_state)
 
-    
+
+plt.rcParams.update({'font.size': 14})    
 cell_types = [ChanMod.terr_cell, ChanMod.aerial_cell]
 title = ['Terrestrial', 'Aerial']
 for iplot, cell_type0 in enumerate(cell_types):
