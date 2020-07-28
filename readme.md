@@ -1,7 +1,8 @@
 # UAV Millimeter Wave Channel Modeling Using Variational Auto-Encoders
 
-Sundeep Rangan, William Xia, Vasilii Semkin, Marco Mezzavilla, Giuseppe Loianno (NYU)
-Giovanni Geraci, Angel Lozano (UPF, Barcelona)
+* Sundeep Rangan, William Xia, Marco Mezzavilla, Giuseppe Loianno (NYU)
+* Giovanni Geraci, Angel Lozano (UPF, Barcelona)
+* Vasilii Semkin (VTT, Finland)
 
 The millimeter wave (mmWave) bands are being increasingly considered for wireless communication to UAVs (unmanned aerial vehicles, also called drones).  Communincation in these frequencies offers the possibility of supporting massive data rates at low latency for real-time sensor and camera data transfer, remote control, and situations when the UAV acts as an aerial base station. Critical to evaluating algorithms for UAVs are statistical channel models that describe the distribution of channel parameters seen in typical scenarios.  Algorithms for many procedures including beamforming and equalization require so-called *double-directional wideband models* where the channel in each link is described by a set of paths with each path having a path loss, delay and angles of arrival and departure.  Wideband double directional descriptions have large numbers of parameters with potentially complex statistical relationships.  This project seeks to use machine learning techniques to develop generative statistical models from data.
 
@@ -42,3 +43,6 @@ Once you have either trained the model from scratch or downloaded the pre-traine
 * `plot_path_loss_cdf.py`:  This will produce a plot of the RMS delay spread CDF predicted by the model and compares the CDF on the test data.  
 * `plot_snr.py`:  Plots the predicted median SNR in a single cell as a function of horizontal and vertical position.
    
+   
+## Acknowledgments
+W.  Xia,  M.  Mezzavilla  and  S.  Rangan  were  supportedby  NSF  grants  1302336,  1564142,  1547332,  and  1824434,NIST, SRC, and the industrial affiliates of NYU WIRELESS.A.  Lozano  and  G.  Geraci  were  supported  by  the  ERC  grant694974,  by  MINECO’s  Project  RTI2018-101040,  and  by  the Junior Leader Program from "la Caixa" Banking Foundation.
